@@ -432,7 +432,7 @@ class DataForSEOClient:
             raise Exception(f"Failed to create task: {str(e)}")
         
         # STEP 2: Wait iniziale
-        initial_wait = 10
+        initial_wait = 15
         self._log(f"⏳ Waiting {initial_wait}s for task processing...")
         time.sleep(initial_wait)
         
@@ -476,7 +476,7 @@ class DataForSEOClient:
                                 return {'items': []}
                     
                     # PROCESSING (include anche "Task Handed" - status 40100)
-                    elif status_code in [40000, 40100]:
+                    elif status_code in [40000, 40100, 40200, 40300, 40400]:
                         if self.debug and attempt % 5 == 0:
                             self._log(f"⏳ Processing ({status_message})... ({attempt+1}/{len(wait_times)})")
                         continue
