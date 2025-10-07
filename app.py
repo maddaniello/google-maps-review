@@ -145,15 +145,134 @@ st.markdown("""
 
 # 🔧 CLASSE DATAFORSEO CLIENT
 class DataForSEOClient:
-    """Client per interagire con le API DataForSEO"""
+    """Client DataForSEO con gestione automatica location"""
     
     def __init__(self, username, password):
         self.username = username
         self.password = password
         self.base_url = "https://api.dataforseo.com/v3"
+        self._location_cache = {}
+    
+    def search_business(self, query, location):
+        """Cerca attività con location_code automatico"""
+        
+        # Pulisci query
+        query_pulita = self._pulisci_query(query)
+        
+        # Ottieni location_code
+        location_code = self._get_location_code(location)
+        
+        if not location_code:
+            st.warning(f"⚠️ Location code non trovato per '{location}', uso Italia")
+            location_code = 2380  # Italia come fallback
+        
+        st.info(f"📍 Usando location_code: {location_code}")
+        
+        # Endpoint my_business_info
+        endpoint = "business_data/google/my_business_info/live"
+        
+        payload = [{
+            "keyword": query_pulita,
+            "location_code": location_code,
+            "language_code": "it"
+        }]
+        
+        result = self._make_request(endpoint, payload)
+        
+        if result.get('status_code') == 20000:
+            tasks = result.get('tasks', [])
+            if tasks and tasks[0].get('status_code') == 20000:
+                if tasks[0].get('result'):
+                    items = tasks[0]['result'][0].get('items', [])
+                    if items:
+                        return {'items': items}
+        
+        return None
+    
+    def _get_location_code(self, location_name):
+        """Ottiene location_code da nome città"""
+        
+        # Check cache
+        if location_name in self._location_cache:
+            return self._location_cache[location_name]
+        
+        try:
+            # Chiamata API per ottenere location
+            url = f"{self.base_url}/business_data/google/locations"
+            headers = {
+                'Authorization': f'Basic {self._get_auth_token()}'
+            }
+            
+            params = {'location_name': location_name}
+            
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if data.get('status_code') == 20000:
+                tasks = data.get('tasks', [])
+                if tasks and tasks[0].get('result'):
+                    locations = tasks[0]['result']
+                    if locations:
+                        # Prendi il primo risultato
+                        location_code = locations[0].get('location_code')
+                        
+                        # Salva in cache
+                        self._location_cache[location_name] = location_code
+                        
+                        return location_code
+        
+        except Exception as e:
+            st.warning(f"⚠️ Errore ricerca location: {e}")
+        
+        return None
+    
+    def _pulisci_query(self, query):
+        """Pulisce query da forme giuridiche"""
+        forme = ['srl', 's.r.l.', 'spa', 'snc', 'unipersonale', '-', 'società']
+        for forma in forme:
+            query = re.sub(rf'\b{forma}\b', '', query, flags=re.IGNORECASE)
+        return re.sub(r'\s+', ' ', query).strip()
+    
+    def get_reviews(self, place_id, limit=100):
+        """Estrae recensioni da Google Maps"""
+        endpoint = "business_data/google/reviews/task_post"
+        
+        payload = [{
+            "place_id": place_id,
+            "language_code": "it",
+            "depth": min(limit, 500),
+            "sort_by": "newest"
+        }]
+        
+        result = self._make_request(endpoint, payload)
+        
+        if result.get('status_code') != 20000:
+            raise Exception(f"Errore creazione task: {result.get('status_message')}")
+        
+        tasks = result.get('tasks', [])
+        if not tasks:
+            raise Exception("Nessun task creato")
+        
+        task_id = tasks[0].get('id')
+        
+        # Attendi completamento (max 30 secondi)
+        for i in range(30):
+            time.sleep(1)
+            
+            check_endpoint = f"business_data/google/reviews/task_get/{task_id}"
+            check_result = self._make_request(check_endpoint, [])
+            
+            if check_result.get('status_code') == 20000:
+                check_tasks = check_result.get('tasks', [])
+                if check_tasks and check_tasks[0].get('result'):
+                    return check_tasks[0]['result'][0]
+        
+        raise Exception("Timeout durante l'estrazione delle recensioni")
     
     def _make_request(self, endpoint, data):
-        """Effettua una richiesta POST alle API DataForSEO"""
+        """Effettua richiesta POST"""
         url = f"{self.base_url}/{endpoint}"
         
         headers = {
@@ -174,7 +293,7 @@ class DataForSEOClient:
             raise Exception(f"Errore API DataForSEO: {str(e)}")
     
     def _get_auth_token(self):
-        """Genera il token di autenticazione Basic"""
+        """Genera token Basic Auth"""
         import base64
         credentials = f"{self.username}:{self.password}"
         return base64.b64encode(credentials.encode()).decode()
