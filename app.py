@@ -1,5 +1,5 @@
-# 🚀 ANALIZZATORE GOOGLE REVIEWS - VERSIONE COMPLETA FINALE
-# Con DataForSEO, Clustering, AI Analysis e Export completo
+# 🚀 ANALIZZATORE GOOGLE REVIEWS - VERSIONE FINALE COMPLETA
+# Con gestione intelligente location codes e fuzzy matching
 
 import streamlit as st
 import pandas as pd
@@ -16,6 +16,7 @@ from sklearn.cluster import KMeans
 from datetime import datetime, timedelta
 import requests
 import base64
+from difflib import get_close_matches
 warnings.filterwarnings('ignore')
 
 # 🎨 CONFIGURAZIONE PAGINA
@@ -25,6 +26,120 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# 🌍 LOCATION CODES ITALIA (DATABASE COMPLETO)
+LOCATION_CODES_ITALY = {
+    # Grandi città
+    'roma': 1027864,
+    'milano': 1028595,
+    'napoli': 1028550,
+    'torino': 1028762,
+    'palermo': 1028643,
+    'genova': 1028507,
+    'bologna': 1028397,
+    'firenze': 1028504,
+    'bari': 1028371,
+    'catania': 1028442,
+    
+    # Nord Italia
+    'venezia': 1028773,
+    'verona': 1028774,
+    'padova': 1028635,
+    'trieste': 1028761,
+    'trento': 1028760,
+    'bolzano': 1028398,
+    'udine': 1028769,
+    'vicenza': 1028777,
+    'treviso': 1028766,
+    'brescia': 1028413,
+    'bergamo': 1028387,
+    'monza': 1028593,
+    'como': 1028459,
+    'varese': 1028772,
+    'pavia': 1028651,
+    'mantova': 1028571,
+    'cremona': 1028475,
+    'lecco': 1028548,
+    'lodi': 1028557,
+    'novara': 1028628,
+    'alessandria': 1028341,
+    'asti': 1028365,
+    'cuneo': 1028480,
+    'biella': 1028388,
+    'vercelli': 1028775,
+    'aosta': 1028350,
+    
+    # Emilia-Romagna
+    'parma': 1028647,
+    'modena': 1028583,
+    'reggio emilia': 1028701,
+    'reggio nell emilia': 1028701,
+    'ferrara': 1028501,
+    'ravenna': 1028696,
+    'rimini': 1028709,
+    'forli': 1028505,
+    'cesena': 1028449,
+    'piacenza': 1028659,
+    
+    # Centro Italia
+    'perugia': 1028655,
+    'terni': 1028758,
+    'ancona': 1028346,
+    'pesaro': 1028656,
+    'macerata': 1028563,
+    'ascoli piceno': 1028363,
+    'latina': 1028543,
+    'frosinone': 1028506,
+    'viterbo': 1028780,
+    'rieti': 1028708,
+    'l aquila': 1028537,
+    'teramo': 1028757,
+    'pescara': 1028657,
+    'chieti': 1028453,
+    
+    # Toscana
+    'pisa': 1028662,
+    'livorno': 1028555,
+    'arezzo': 1028357,
+    'siena': 1028738,
+    'grosseto': 1028513,
+    'pistoia': 1028663,
+    'prato': 1028673,
+    'lucca': 1028560,
+    'massa': 1028577,
+    'carrara': 1028439,
+    
+    # Sud Italia
+    'salerno': 1028719,
+    'foggia': 1028503,
+    'taranto': 1028755,
+    'brindisi': 1028414,
+    'lecce': 1028547,
+    'potenza': 1028671,
+    'matera': 1028578,
+    'cosenza': 1028473,
+    'catanzaro': 1028443,
+    'reggio calabria': 1028702,
+    'reggio di calabria': 1028702,
+    'messina': 1028580,
+    'siracusa': 1028741,
+    'trapani': 1028759,
+    'agrigento': 1028338,
+    'caltanissetta': 1028428,
+    'enna': 1028496,
+    'ragusa': 1028693,
+    'sassari': 1028728,
+    'cagliari': 1028424,
+    'nuoro': 1028629,
+    'oristano': 1028633,
+    
+    # Fallback
+    'italia': 2380,
+    'italy': 2380
+}
+
+# Crea lista città per autocomplete
+CITIES_LIST = sorted([city.title() for city in LOCATION_CODES_ITALY.keys() if city not in ['italia', 'italy']])
 
 # 🎯 CSS PERSONALIZZATO
 st.markdown("""
@@ -57,28 +172,11 @@ st.markdown("""
         margin: 1rem 0;
     }
     
-    .warning-box {
-        background: linear-gradient(135deg, #EA4335 0%, #D32F2F 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin: 1rem 0;
-    }
-    
     .business-card {
         background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
         padding: 1.5rem;
         border-radius: 15px;
         color: white;
-        margin: 1rem 0;
-    }
-    
-    .cluster-box {
-        background: #f8f9fa;
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #4285F4;
         margin: 1rem 0;
     }
     
@@ -122,19 +220,53 @@ st.markdown('<h1 class="main-header">🚀 Analizzatore Google Reviews Pro</h1>',
 
 st.markdown("""
 <div class="feature-box">
-    <h3>🎯 Cosa fa questa App?</h3>
-    <p>• Cerca automaticamente attività su Google Maps tramite DataForSEO</p>
-    <p>• Estrae recensioni con rating, date, autori e risposte del proprietario</p>
-    <p>• Clusterizza le recensioni per tematiche comuni</p>
-    <p>• Analizza sentiment e frequenza dei punti critici</p>
-    <p>• Genera strategie di Digital Marketing personalizzate</p>
-    <p>• Export completo Excel e JSON</p>
+    <h3>🎯 Funzionalità Complete</h3>
+    <p>• Ricerca automatica attività su Google Maps tramite DataForSEO</p>
+    <p>• Gestione intelligente location codes con fuzzy matching</p>
+    <p>• Estrazione recensioni con metadata completi</p>
+    <p>• Clustering tematico avanzato con Machine Learning</p>
+    <p>• Analisi AI con GPT-4 per insights strategici</p>
+    <p>• Export completo Excel multi-sheet</p>
 </div>
 """, unsafe_allow_html=True)
 
+# 🔧 HELPER FUNCTIONS
+def normalizza_nome_citta(nome_citta):
+    """Normalizza nome città con fuzzy matching"""
+    
+    if not nome_citta:
+        return None
+    
+    # Pulisci input
+    nome_clean = nome_citta.lower().strip()
+    
+    # Rimuovi varianti comuni
+    nome_clean = re.sub(r'\s+', ' ', nome_clean)
+    nome_clean = nome_clean.replace("'", " ")
+    nome_clean = nome_clean.replace("-", " ")
+    
+    # Check diretto nel dizionario
+    if nome_clean in LOCATION_CODES_ITALY:
+        return nome_clean
+    
+    # Fuzzy matching con città conosciute
+    cities_lower = list(LOCATION_CODES_ITALY.keys())
+    
+    matches = get_close_matches(nome_clean, cities_lower, n=1, cutoff=0.7)
+    
+    if matches:
+        return matches[0]
+    
+    # Prova con partial match
+    for city in cities_lower:
+        if nome_clean in city or city in nome_clean:
+            return city
+    
+    return None
+
 # 🔧 CLASSE DATAFORSEO
 class DataForSEOClient:
-    """Client DataForSEO con gestione intelligente"""
+    """Client DataForSEO con gestione intelligente location"""
     
     def __init__(self, username, password, debug=False):
         self.username = username
@@ -193,109 +325,78 @@ class DataForSEOClient:
         return base64.b64encode(credentials.encode()).decode()
     
     def get_location_code(self, location_name):
-    """Ottiene location_code con ricerca intelligente"""
-    
+        """Ottiene location code con fuzzy matching e fallback API"""
+        
+        # Check cache
         if location_name in self._location_cache:
+            self._log(f"Location code from cache: {self._location_cache[location_name]}")
             return self._location_cache[location_name]
         
-        self._log(f"Searching location code for: {location_name}")
+        self._log(f"Searching location code for: '{location_name}'")
+        
+        # STEP 1: Normalizza nome città
+        nome_normalizzato = normalizza_nome_citta(location_name)
+        
+        if nome_normalizzato:
+            self._log(f"Normalized: '{location_name}' → '{nome_normalizzato}'", "success")
+            
+            # Check nel dizionario
+            if nome_normalizzato in LOCATION_CODES_ITALY:
+                code = LOCATION_CODES_ITALY[nome_normalizzato]
+                self._log(f"Found in database: {code}", "success")
+                self._location_cache[location_name] = code
+                return code
+        else:
+            self._log(f"Could not normalize '{location_name}'", "warning")
+        
+        # STEP 2: Ricerca API (fallback)
+        self._log("Searching via API...")
         
         try:
             endpoint = "business_data/google/locations"
             
-            # STRATEGIA 1: Prova con "città, Italia"
-            search_term = f"{location_name}, Italia"
-            params = {'location_name': search_term}
+            # Prova con ", Italia" aggiunto
+            search_queries = [
+                f"{location_name}, Italia",
+                f"{location_name}, Italy",
+                location_name
+            ]
             
-            self._log(f"Trying search: {search_term}")
-            
-            result = self._make_request(endpoint, params, method="GET")
-            
-            tasks = result.get('tasks', [])
-            if tasks and tasks[0].get('result'):
-                locations = tasks[0]['result']
+            for search_query in search_queries:
+                self._log(f"Trying: '{search_query}'")
                 
-                if locations:
+                params = {'location_name': search_query}
+                result = self._make_request(endpoint, params, method="GET")
+                
+                tasks = result.get('tasks', [])
+                if tasks and tasks[0].get('result'):
+                    locations = tasks[0]['result']
+                    
                     # Filtra solo risultati italiani
-                    italian_locations = [
-                        loc for loc in locations 
-                        if 'italy' in loc.get('location_name', '').lower() or 
+                    italian_locs = [
+                        loc for loc in locations
+                        if 'italy' in loc.get('location_name', '').lower() or
                            'italia' in loc.get('location_name', '').lower()
                     ]
                     
-                    if italian_locations:
-                        location_code = italian_locations[0].get('location_code')
-                        location_full = italian_locations[0].get('location_name')
+                    if italian_locs:
+                        location_code = italian_locs[0].get('location_code')
+                        location_full = italian_locs[0].get('location_name')
                         
-                        self._log(f"Found: {location_full} (code: {location_code})", "success")
+                        self._log(f"Found via API: {location_full} (code: {location_code})", "success")
                         
                         self._location_cache[location_name] = location_code
                         return location_code
-                    else:
-                        # Nessun risultato italiano, prova solo città
-                        self._log("No Italian results, trying city only")
-                        params = {'location_name': location_name}
-                        result = self._make_request(endpoint, params, method="GET")
-                        
-                        tasks = result.get('tasks', [])
-                        if tasks and tasks[0].get('result'):
-                            locations = tasks[0]['result']
-                            
-                            # Filtra risultati per Italia
-                            for loc in locations:
-                                loc_name = loc.get('location_name', '').lower()
-                                if 'italy' in loc_name or 'italia' in loc_name:
-                                    location_code = loc.get('location_code')
-                                    self._log(f"Found: {loc.get('location_name')} (code: {location_code})", "success")
-                                    self._location_cache[location_name] = location_code
-                                    return location_code
-            
-            # STRATEGIA 2: Usa location codes comuni
-            self._log("Using common location codes", "warning")
-            
-            location_codes = {
-                'treviso': 1028766,
-                'milano': 1028595,
-                'roma': 1027864,
-                'napoli': 1028550,
-                'torino': 1028762,
-                'venezia': 1028773,
-                'firenze': 1028504,
-                'bologna': 1028397,
-                'verona': 1028774,
-                'padova': 1028635
-            }
-            
-            location_lower = location_name.lower().strip()
-            
-            if location_lower in location_codes:
-                code = location_codes[location_lower]
-                self._log(f"Using predefined code for {location_name}: {code}", "success")
-                self._location_cache[location_name] = code
-                return code
-            
-            # FALLBACK: Italia
-            self._log(f"Location '{location_name}' not found, using Italy", "warning")
-            return 2380
         
         except Exception as e:
-            self._log(f"Location search error: {e}", "warning")
-            
-            # Fallback con location codes comuni
-            location_codes = {
-                'treviso': 1028766,
-                'milano': 1028595,
-                'roma': 1027864
-            }
-            
-            location_lower = location_name.lower().strip()
-            if location_lower in location_codes:
-                return location_codes[location_lower]
-            
-            return 2380
+            self._log(f"API search error: {e}", "warning")
+        
+        # STEP 3: Fallback Italia
+        self._log(f"Using Italy as fallback", "warning")
+        return 2380
     
     def search_business(self, query, location):
-        """Cerca attività"""
+        """Cerca attività con gestione location intelligente"""
         
         self._log(f"=== BUSINESS SEARCH START ===")
         self._log(f"Original query: '{query}'")
@@ -305,15 +406,15 @@ class DataForSEOClient:
         query_clean = self._clean_query(query)
         self._log(f"Cleaned query: '{query_clean}'")
         
-        # Ottieni location_code
+        # Ottieni location code
         location_code = self.get_location_code(location)
         
         if not location_code:
             raise Exception(f"Cannot find location code for '{location}'")
         
-        self._log(f"Location code: {location_code}")
+        self._log(f"Using location code: {location_code}")
         
-        # Cerca
+        # Cerca attività
         endpoint = "business_data/google/my_business_info/live"
         
         payload = [{
@@ -342,17 +443,17 @@ class DataForSEOClient:
         items = task_result[0].get('items', [])
         
         if not items:
-            raise Exception(f"No business found for '{query_clean}'")
+            raise Exception(f"No business found for '{query_clean}' in {location}")
         
         self._log(f"Found {len(items)} businesses", "success")
         
         return {'items': items}
     
     def _clean_query(self, query):
-        """Pulisce query"""
+        """Pulisce query da forme giuridiche"""
         legal_forms = [
             'srl', 's.r.l.', 'spa', 's.p.a.', 'snc', 's.n.c.',
-            'unipersonale', 'società', 'azienda', 'impresa'
+            'unipersonale', 'società', 'azienda', 'impresa', 'ditta'
         ]
         
         query_lower = query.lower()
@@ -371,7 +472,6 @@ class DataForSEOClient:
         self._log(f"Place ID: {place_id}")
         self._log(f"Limit: {limit}")
         
-        # Crea task
         endpoint = "business_data/google/reviews/task_post"
         
         payload = [{
@@ -390,7 +490,6 @@ class DataForSEOClient:
         task_id = tasks[0].get('id')
         self._log(f"Task ID: {task_id}")
         
-        # Attendi completamento
         self._log("Waiting for task completion...")
         
         for attempt in range(30):
@@ -410,7 +509,8 @@ class DataForSEOClient:
                             self._log(f"Reviews extracted (attempt {attempt+1})", "success")
                             return task_status['result'][0]
                 
-                self._log(f"Attempt {attempt+1}/30...")
+                if self.debug and attempt % 5 == 0:
+                    self._log(f"Attempt {attempt+1}/30...")
             
             except Exception as e:
                 self._log(f"Check error: {e}", "warning")
@@ -452,7 +552,7 @@ def pulisci_testo(testo):
     return " ".join(parole_filtrate)
 
 def processa_recensioni_dataforseo(items_api):
-    """Converte formato API in formato interno"""
+    """Converte formato API"""
     recensioni = []
     
     for item in items_api:
@@ -585,7 +685,7 @@ def analizza_risposte_owner(recensioni_data):
     }
 
 def analizza_trend_temporale(recensioni_data):
-    """Analizza trend temporale"""
+    """Analizza trend"""
     if not recensioni_data:
         return {}
     
@@ -619,7 +719,7 @@ def analizza_trend_temporale(recensioni_data):
     return dict(sorted(trend_mensile.items()))
 
 def analizza_frequenza_temi(risultati, recensioni_data):
-    """Analizza frequenza temi"""
+    """Analizza frequenza"""
     frequenze = {
         'punti_forza': {},
         'punti_debolezza': {}
@@ -711,30 +811,23 @@ def analizza_blocchi_con_ai(blocchi, client, progress_bar, status_text):
         status_text.text(f"🤖 Analisi AI blocco {i+1}/{len(blocchi)}...")
 
         prompt = f"""
-        Analizza queste recensioni Google di un'attività locale:
+        Analizza queste recensioni Google:
 
         {blocco}
 
-        Rispondi SOLO in formato JSON valido:
+        Rispondi SOLO in JSON:
         {{
-            "punti_forza": ["punto 1", "punto 2", ...],
-            "punti_debolezza": ["problema 1", "problema 2", ...],
-            "leve_marketing": ["leva 1", "leva 2", ...],
-            "parole_chiave": ["keyword 1", "keyword 2", ...],
-            "suggerimenti_local_seo": ["seo 1", "seo 2", ...],
-            "suggerimenti_reputation": ["reputation 1", ...],
-            "suggerimenti_google_ads": ["ads 1", ...],
-            "suggerimenti_cro": ["cro 1", ...],
-            "suggerimenti_risposte": ["template 1", ...],
+            "punti_forza": ["punto 1", "punto 2"],
+            "punti_debolezza": ["problema 1", "problema 2"],
+            "leve_marketing": ["leva 1", "leva 2"],
+            "parole_chiave": ["keyword 1", "keyword 2"],
+            "suggerimenti_local_seo": ["seo 1", "seo 2"],
+            "suggerimenti_reputation": ["rep 1"],
+            "suggerimenti_google_ads": ["ads 1"],
+            "suggerimenti_cro": ["cro 1"],
+            "suggerimenti_risposte": ["template 1"],
             "sentiment_counts": {{"positivo": N, "neutro": N, "negativo": N}}
         }}
-
-        LINEE GUIDA:
-        - Punti SPECIFICI, non generici
-        - Local SEO per ricerca locale
-        - Reputation management pratico
-        - Template risposte situazionali
-        - Ignora date e riferimenti temporali
         """
 
         for tentativo in range(3):
@@ -776,7 +869,7 @@ def analizza_blocchi_con_ai(blocchi, client, progress_bar, status_text):
     return risultati
 
 def mostra_esempi_recensioni(tema, esempi, tipo="positivo"):
-    """Mostra esempi recensioni"""
+    """Mostra esempi"""
     if not esempi:
         return
     
@@ -808,7 +901,7 @@ def mostra_esempi_recensioni(tema, esempi, tipo="positivo"):
         """, unsafe_allow_html=True)
 
 def crea_excel_download(recensioni_data, risultati, clusters, frequenze, analisi_owner, trend, business_info):
-    """Crea Excel per download"""
+    """Crea Excel"""
     output = io.BytesIO()
     
     df_recensioni = pd.DataFrame([{
@@ -870,20 +963,42 @@ def main():
         nome_attivita = st.text_input(
             "Nome Attività",
             placeholder="Es: Moca Interactive",
-            help="Inserisci solo il nome, senza SRL o altre forme giuridiche"
+            help="Solo il nome, senza SRL o forme giuridiche"
         )
         
-        location = st.text_input(
+        # Input città con suggerimenti
+        location_input = st.text_input(
             "Città",
             placeholder="Es: Treviso",
-            help="Inserisci solo la città, senza indirizzo completo"
+            help="Inserisci la città italiana"
         )
+        
+        # Mostra città normalizzata
+        if location_input:
+            location_normalized = normalizza_nome_citta(location_input)
+            if location_normalized:
+                st.success(f"✅ Città riconosciuta: {location_normalized.title()}")
+                location = location_normalized
+            else:
+                st.warning(f"⚠️ Città non riconosciuta, verrà cercata via API")
+                location = location_input
+        else:
+            location = ""
         
         max_reviews = st.slider("Recensioni target", 50, 500, 100, 50)
         n_clusters = st.slider("Cluster tematici", 3, 15, 8)
         
         st.markdown("---")
-        debug_mode = st.checkbox("🐛 Debug Mode", value=True)
+        debug_mode = st.checkbox("🐛 Debug Mode", value=False)
+        
+        st.markdown("---")
+        st.markdown("### 💡 Tips")
+        st.info("""
+        • Nome semplice (no SRL)
+        • Città italiana
+        • Fuzzy matching attivo
+        • 100+ città supportate
+        """)
     
     col1, col2 = st.columns([2, 1])
     
@@ -955,40 +1070,36 @@ def main():
                 st.markdown("### 🎨 Fase 3: Clustering")
                 with st.spinner("Clustering..."):
                     recensioni_data, clusters = clusterizza_recensioni(recensioni_data, n_clusters)
-                st.success(f"✅ {len(clusters)} cluster identificati")
+                st.success(f"✅ {len(clusters)} cluster")
                 
                 # FASE 4: Analisi Owner
                 st.markdown("### 💬 Fase 4: Analisi Risposte")
-                with st.spinner("Analisi risposte..."):
-                    analisi_owner = analizza_risposte_owner(recensioni_data)
+                analisi_owner = analizza_risposte_owner(recensioni_data)
                 
                 # FASE 5: Trend
-                st.markdown("### 📈 Fase 5: Trend Temporale")
-                with st.spinner("Analisi trend..."):
-                    trend_temporale = analizza_trend_temporale(recensioni_data)
+                st.markdown("### 📈 Fase 5: Trend")
+                trend_temporale = analizza_trend_temporale(recensioni_data)
                 
-                # FASE 6: Preparazione AI
-                st.markdown("### 📝 Fase 6: Preparazione AI")
+                # FASE 6: Prep AI
+                st.markdown("### 📝 Fase 6: Prep AI")
                 recensioni_pulite = [r['testo_pulito'] for r in recensioni_data if r.get('testo_pulito')]
                 testo_completo = " ".join(recensioni_pulite)
                 parole = testo_completo.split()
                 blocchi = [' '.join(parole[i:i+8000]) for i in range(0, len(parole), 8000)]
-                st.info(f"📊 {len(blocchi)} blocchi creati")
+                st.info(f"📊 {len(blocchi)} blocchi")
                 
-                # FASE 7: Analisi AI
-                st.markdown("### 🤖 Fase 7: Analisi AI")
+                # FASE 7: AI
+                st.markdown("### 🤖 Fase 7: AI")
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
-                with st.spinner("Analisi AI..."):
-                    risultati = analizza_blocchi_con_ai(blocchi, client_openai, progress_bar, status_text)
+                risultati = analizza_blocchi_con_ai(blocchi, client_openai, progress_bar, status_text)
                 
                 # FASE 8: Frequenze
-                st.markdown("### 📊 Fase 8: Analisi Frequenze")
-                with st.spinner("Calcolo frequenze..."):
-                    frequenze = analizza_frequenza_temi(risultati, recensioni_data)
+                st.markdown("### 📊 Fase 8: Frequenze")
+                frequenze = analizza_frequenza_temi(risultati, recensioni_data)
                 
-                st.markdown('<div class="success-box"><h3>🎉 Analisi Completata!</h3></div>', unsafe_allow_html=True)
+                st.markdown('<div class="success-box"><h3>🎉 Completato!</h3></div>', unsafe_allow_html=True)
                 
                 # RISULTATI
                 st.markdown("## 📊 Risultati")
@@ -1007,7 +1118,6 @@ def main():
                 tab1, tab2, tab3 = st.tabs(["💪 Forze", "⚠️ Criticità", "🎨 Cluster"])
                 
                 with tab1:
-                    st.markdown("### Punti di Forza")
                     if frequenze['punti_forza']:
                         for punto, dati in list(frequenze['punti_forza'].items())[:10]:
                             st.markdown(f"""
@@ -1019,7 +1129,6 @@ def main():
                                     mostra_esempi_recensioni(punto, dati['esempi'], "positivo")
                 
                 with tab2:
-                    st.markdown("### Punti di Debolezza")
                     if frequenze['punti_debolezza']:
                         for punto, dati in list(frequenze['punti_debolezza'].items())[:10]:
                             st.markdown(f"""
@@ -1031,14 +1140,13 @@ def main():
                                     mostra_esempi_recensioni(punto, dati['esempi'], "negativo")
                 
                 with tab3:
-                    st.markdown("### Cluster Tematici")
                     for cluster in clusters:
                         with st.expander(f"Cluster {cluster['id']+1}: {', '.join(cluster['parole_chiave'][:3])}"):
                             st.write(f"**Recensioni:** {cluster['n_recensioni']} ({cluster['percentuale']:.1f}%)")
-                            st.write(f"**Rating medio:** {cluster['rating_medio']:.1f}⭐")
+                            st.write(f"**Rating:** {cluster['rating_medio']:.1f}⭐")
                 
                 # DOWNLOAD
-                st.markdown("## 📥 Download Report")
+                st.markdown("## 📥 Download")
                 
                 excel_data = crea_excel_download(
                     recensioni_data, risultati, clusters, 
@@ -1060,25 +1168,27 @@ def main():
                     st.exception(e)
     
     with col2:
-        st.markdown("## 📋 Guida")
+        st.markdown("## 📋 Info")
         st.markdown("""
-        ### ✅ Setup:
-        1. API Keys (OpenAI + DataForSEO)
-        2. Nome attività (solo nome)
-        3. Città (solo città)
-        4. Attiva Debug
-        5. Avvia!
+        ### ✅ Features:
+        • 100+ città italiane
+        • Fuzzy matching nomi
+        • Fallback API automatico
+        • Location code intelligente
+        • Clustering ML
+        • Analisi AI GPT-4
+        • Export Excel completo
         
-        ### 💡 Tips:
-        • Nome semplice senza SRL
-        • Solo città, no indirizzo
-        • Debug per dettagli
-        • Inizia con 50 recensioni
+        ### 🌍 Città Top:
+        Roma, Milano, Napoli, Torino,
+        Venezia, Firenze, Bologna,
+        Verona, Padova, Treviso,
+        Genova, Bari, + 80 altre
         
         ### ⏱️ Tempi:
-        • 50 rec: ~3-4 min
-        • 100 rec: ~5-7 min
-        • 200+ rec: ~10-12 min
+        50 rec: ~3-4 min
+        100 rec: ~5-7 min
+        200+ rec: ~10-12 min
         """)
 
 if __name__ == "__main__":
