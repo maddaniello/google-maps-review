@@ -195,104 +195,104 @@ class DataForSEOClient:
     def get_location_code(self, location_name):
     """Ottiene location_code con ricerca intelligente"""
     
-    if location_name in self._location_cache:
-        return self._location_cache[location_name]
-    
-    self._log(f"Searching location code for: {location_name}")
-    
-    try:
-        endpoint = "business_data/google/locations"
+        if location_name in self._location_cache:
+            return self._location_cache[location_name]
         
-        # STRATEGIA 1: Prova con "città, Italia"
-        search_term = f"{location_name}, Italia"
-        params = {'location_name': search_term}
+        self._log(f"Searching location code for: {location_name}")
         
-        self._log(f"Trying search: {search_term}")
-        
-        result = self._make_request(endpoint, params, method="GET")
-        
-        tasks = result.get('tasks', [])
-        if tasks and tasks[0].get('result'):
-            locations = tasks[0]['result']
+        try:
+            endpoint = "business_data/google/locations"
             
-            if locations:
-                # Filtra solo risultati italiani
-                italian_locations = [
-                    loc for loc in locations 
-                    if 'italy' in loc.get('location_name', '').lower() or 
-                       'italia' in loc.get('location_name', '').lower()
-                ]
+            # STRATEGIA 1: Prova con "città, Italia"
+            search_term = f"{location_name}, Italia"
+            params = {'location_name': search_term}
+            
+            self._log(f"Trying search: {search_term}")
+            
+            result = self._make_request(endpoint, params, method="GET")
+            
+            tasks = result.get('tasks', [])
+            if tasks and tasks[0].get('result'):
+                locations = tasks[0]['result']
                 
-                if italian_locations:
-                    location_code = italian_locations[0].get('location_code')
-                    location_full = italian_locations[0].get('location_name')
+                if locations:
+                    # Filtra solo risultati italiani
+                    italian_locations = [
+                        loc for loc in locations 
+                        if 'italy' in loc.get('location_name', '').lower() or 
+                           'italia' in loc.get('location_name', '').lower()
+                    ]
                     
-                    self._log(f"Found: {location_full} (code: {location_code})", "success")
-                    
-                    self._location_cache[location_name] = location_code
-                    return location_code
-                else:
-                    # Nessun risultato italiano, prova solo città
-                    self._log("No Italian results, trying city only")
-                    params = {'location_name': location_name}
-                    result = self._make_request(endpoint, params, method="GET")
-                    
-                    tasks = result.get('tasks', [])
-                    if tasks and tasks[0].get('result'):
-                        locations = tasks[0]['result']
+                    if italian_locations:
+                        location_code = italian_locations[0].get('location_code')
+                        location_full = italian_locations[0].get('location_name')
                         
-                        # Filtra risultati per Italia
-                        for loc in locations:
-                            loc_name = loc.get('location_name', '').lower()
-                            if 'italy' in loc_name or 'italia' in loc_name:
-                                location_code = loc.get('location_code')
-                                self._log(f"Found: {loc.get('location_name')} (code: {location_code})", "success")
-                                self._location_cache[location_name] = location_code
-                                return location_code
+                        self._log(f"Found: {location_full} (code: {location_code})", "success")
+                        
+                        self._location_cache[location_name] = location_code
+                        return location_code
+                    else:
+                        # Nessun risultato italiano, prova solo città
+                        self._log("No Italian results, trying city only")
+                        params = {'location_name': location_name}
+                        result = self._make_request(endpoint, params, method="GET")
+                        
+                        tasks = result.get('tasks', [])
+                        if tasks and tasks[0].get('result'):
+                            locations = tasks[0]['result']
+                            
+                            # Filtra risultati per Italia
+                            for loc in locations:
+                                loc_name = loc.get('location_name', '').lower()
+                                if 'italy' in loc_name or 'italia' in loc_name:
+                                    location_code = loc.get('location_code')
+                                    self._log(f"Found: {loc.get('location_name')} (code: {location_code})", "success")
+                                    self._location_cache[location_name] = location_code
+                                    return location_code
+            
+            # STRATEGIA 2: Usa location codes comuni
+            self._log("Using common location codes", "warning")
+            
+            location_codes = {
+                'treviso': 1028766,
+                'milano': 1028595,
+                'roma': 1027864,
+                'napoli': 1028550,
+                'torino': 1028762,
+                'venezia': 1028773,
+                'firenze': 1028504,
+                'bologna': 1028397,
+                'verona': 1028774,
+                'padova': 1028635
+            }
+            
+            location_lower = location_name.lower().strip()
+            
+            if location_lower in location_codes:
+                code = location_codes[location_lower]
+                self._log(f"Using predefined code for {location_name}: {code}", "success")
+                self._location_cache[location_name] = code
+                return code
+            
+            # FALLBACK: Italia
+            self._log(f"Location '{location_name}' not found, using Italy", "warning")
+            return 2380
         
-        # STRATEGIA 2: Usa location codes comuni
-        self._log("Using common location codes", "warning")
-        
-        location_codes = {
-            'treviso': 1028766,
-            'milano': 1028595,
-            'roma': 1027864,
-            'napoli': 1028550,
-            'torino': 1028762,
-            'venezia': 1028773,
-            'firenze': 1028504,
-            'bologna': 1028397,
-            'verona': 1028774,
-            'padova': 1028635
-        }
-        
-        location_lower = location_name.lower().strip()
-        
-        if location_lower in location_codes:
-            code = location_codes[location_lower]
-            self._log(f"Using predefined code for {location_name}: {code}", "success")
-            self._location_cache[location_name] = code
-            return code
-        
-        # FALLBACK: Italia
-        self._log(f"Location '{location_name}' not found, using Italy", "warning")
-        return 2380
-    
-    except Exception as e:
-        self._log(f"Location search error: {e}", "warning")
-        
-        # Fallback con location codes comuni
-        location_codes = {
-            'treviso': 1028766,
-            'milano': 1028595,
-            'roma': 1027864
-        }
-        
-        location_lower = location_name.lower().strip()
-        if location_lower in location_codes:
-            return location_codes[location_lower]
-        
-        return 2380
+        except Exception as e:
+            self._log(f"Location search error: {e}", "warning")
+            
+            # Fallback con location codes comuni
+            location_codes = {
+                'treviso': 1028766,
+                'milano': 1028595,
+                'roma': 1027864
+            }
+            
+            location_lower = location_name.lower().strip()
+            if location_lower in location_codes:
+                return location_codes[location_lower]
+            
+            return 2380
     
     def search_business(self, query, location):
         """Cerca attività"""
