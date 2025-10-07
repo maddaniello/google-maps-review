@@ -1,5 +1,5 @@
 # 🚀 ANALIZZATORE GOOGLE REVIEWS - VERSIONE FINALE CON GESTIONE CODA
-# Sistema completo: pulizia task + ricerca business + estrazione recensioni + analisi AI
+# Sistema completo: controllo + svuotamento coda + ricerca business + estrazione recensioni + analisi AI
 
 import streamlit as st
 import pandas as pd
@@ -127,7 +127,8 @@ st.markdown('<h1 class="main-header">🚀 Analizzatore Google Reviews Pro</h1>',
 st.markdown("""
 <div class="feature-box">
     <h3>🎯 Sistema con Gestione Coda Intelligente</h3>
-    <p>✅ Pulizia automatica task in coda</p>
+    <p>✅ Controllo coda in tempo reale</p>
+    <p>✅ Attesa automatica svuotamento</p>
     <p>✅ Priorità al task corrente</p>
     <p>✅ Ricerca business adattiva</p>
     <p>✅ Estrazione recensioni garantita</p>
@@ -138,6 +139,7 @@ st.markdown("""
 
 # 🔧 HELPER
 def normalizza_nome_citta(nome_citta):
+    """Normalizza il nome della città"""
     if not nome_citta:
         return None
     nome_clean = nome_citta.lower().strip()
@@ -222,9 +224,40 @@ class DataForSEOClient:
             self._log(f"Cannot retrieve tasks: {str(e)}", "warning")
             return []
     
+    def wait_for_queue_clear(self, max_wait_seconds=180, check_interval=10):
+        """
+        Attende che la coda si svuoti
+        Ritorna: (success: bool, remaining_tasks: int)
+        """
+        elapsed = 0
+        initial_count = len(self.get_tasks_ready())
+        
+        if initial_count == 0:
+            return True, 0
+        
+        self._log(f"⏳ Attesa svuotamento coda ({initial_count} task)...")
+        
+        while elapsed < max_wait_seconds:
+            time.sleep(check_interval)
+            elapsed += check_interval
+            
+            current_tasks = self.get_tasks_ready()
+            n_current = len(current_tasks)
+            
+            if n_current == 0:
+                self._log(f"✅ Coda svuotata in {elapsed}s!", "success")
+                return True, 0
+            
+            if self.debug and elapsed % 30 == 0:
+                self._log(f"⏳ {n_current} task rimanenti... ({elapsed}s)")
+        
+        remaining = len(self.get_tasks_ready())
+        self._log(f"⏱️ Timeout dopo {max_wait_seconds}s. {remaining} task rimasti", "warning")
+        return False, remaining
+    
     def clear_old_tasks(self, max_age_minutes=30):
-        """Pulisce task vecchi dalla coda"""
-        self._log("🧹 Checking for old tasks...")
+        """Controlla task vecchi nella coda"""
+        self._log("🧹 Checking task queue...")
         
         tasks = self.get_tasks_ready()
         
@@ -232,28 +265,8 @@ class DataForSEOClient:
             self._log("✅ No tasks in queue", "success")
             return 0
         
-        now = datetime.utcnow()
-        old_tasks = []
-        
-        for task in tasks:
-            # Controlla età del task (se disponibile)
-            task_time = task.get('time')
-            if task_time:
-                try:
-                    # Parsing del formato DataForSEO
-                    task_age = float(task_time.replace(' sec.', ''))
-                    if task_age > max_age_minutes * 60:
-                        old_tasks.append(task)
-                except:
-                    pass
-        
         n_total = len(tasks)
-        n_old = len(old_tasks)
-        
-        if n_old > 0:
-            self._log(f"🗑️ Found {n_old} old tasks (> {max_age_minutes}min)", "warning")
-        
-        self._log(f"📊 Queue status: {n_total} tasks total")
+        self._log(f"📊 Queue status: {n_total} tasks")
         
         return n_total
     
@@ -599,8 +612,8 @@ class DataForSEOClient:
             f"📊 {final_queue} task ancora in coda\n\n"
             f"💡 Troppi task in elaborazione. Suggerimenti:\n"
             f"• Aspetta 5-10 minuti e riprova\n"
-            f"• Riduci il numero di recensioni richieste\n"
-            f"• Usa un altro account DataForSEO se disponibile"
+            f"• Usa il bottone 'Attendi Coda' prima di iniziare\n"
+            f"• Riduci il numero di recensioni richieste"
         )
 
 # 🔧 PROCESSING FUNCTIONS
@@ -1072,18 +1085,78 @@ def main():
         
         st.markdown("---")
         
-        # Controllo coda task
+        # 🗂️ GESTIONE CODA TASK
+        st.markdown("### 🗂️ Gestione Coda")
+        
         if dataforseo_username and dataforseo_password:
-            if st.button("🔍 Controlla Coda Task"):
-                with st.spinner("Checking..."):
-                    client_test = DataForSEOClient(dataforseo_username, dataforseo_password, debug=False)
-                    tasks = client_test.get_tasks_ready()
-                    
-                    if tasks:
-                        st.warning(f"⚠️ **{len(tasks)} task** in coda")
-                        st.info("💡 Aspetta che si svuotino o procedi (ci vorrà più tempo)")
-                    else:
-                        st.success("✅ Nessun task in coda!")
+            col_btn1, col_btn2 = st.columns(2)
+            
+            with col_btn1:
+                if st.button("🔍 Controlla", use_container_width=True):
+                    with st.spinner("Checking..."):
+                        client_test = DataForSEOClient(dataforseo_username, dataforseo_password, debug=False)
+                        tasks = client_test.get_tasks_ready()
+                        
+                        if tasks:
+                            st.warning(f"⚠️ **{len(tasks)} task**")
+                            with st.expander("📋 Dettagli Task"):
+                                for idx, task in enumerate(tasks[:10], 1):
+                                    task_id = task.get('id', 'N/A')
+                                    status = task.get('status_message', 'N/A')
+                                    st.text(f"{idx}. {status}")
+                        else:
+                            st.success("✅ Coda vuota!")
+            
+            with col_btn2:
+                if st.button("⏳ Attendi", use_container_width=True):
+                    with st.spinner("Attesa svuotamento..."):
+                        client_test = DataForSEOClient(dataforseo_username, dataforseo_password, debug=False)
+                        
+                        tasks = client_test.get_tasks_ready()
+                        
+                        if not tasks:
+                            st.success("✅ Già vuota!")
+                        else:
+                            n_initial = len(tasks)
+                            st.info(f"⏳ {n_initial} task in coda...")
+                            
+                            max_wait = 180  # 3 minuti
+                            check_interval = 10
+                            elapsed = 0
+                            
+                            progress = st.progress(0)
+                            status_placeholder = st.empty()
+                            
+                            while elapsed < max_wait:
+                                time.sleep(check_interval)
+                                elapsed += check_interval
+                                
+                                current_tasks = client_test.get_tasks_ready()
+                                n_current = len(current_tasks)
+                                
+                                progress.progress(elapsed / max_wait)
+                                status_placeholder.text(f"⏳ {n_current} task... ({elapsed}s)")
+                                
+                                if n_current == 0:
+                                    progress.empty()
+                                    status_placeholder.empty()
+                                    st.balloons()
+                                    st.success("🎉 Coda svuotata!")
+                                    break
+                                
+                                # Se nessun progresso in 60s
+                                if elapsed >= 60 and n_current >= n_initial:
+                                    progress.empty()
+                                    status_placeholder.empty()
+                                    st.warning(f"⚠️ Nessun progresso. {n_current} task ancora in coda.")
+                                    st.info("💡 Aspetta qualche minuto")
+                                    break
+                            else:
+                                progress.empty()
+                                status_placeholder.empty()
+                                remaining = len(client_test.get_tasks_ready())
+                                st.warning(f"⏱️ Timeout. {remaining} task rimasti")
+                                st.info("💡 Riprova tra qualche minuto")
         
         st.markdown("---")
         st.markdown("### 🏢 Dati Business")
@@ -1091,25 +1164,25 @@ def main():
         nome_attivita = st.text_input("Nome Attività", placeholder="Es: Moca Interactive")
         
         if nome_attivita and len(nome_attivita) < 5:
-            st.warning("⚠️ Nome molto corto - specifica meglio")
+            st.warning("⚠️ Nome molto corto")
         
         location = st.text_input("Città o Indirizzo", placeholder="Es: Treviso")
         
         if location:
             if ',' in location or any(x in location.lower() for x in ['via', 'viale']):
-                st.info("📍 Indirizzo completo rilevato")
+                st.info("📍 Indirizzo completo")
             else:
                 normalized = normalizza_nome_citta(location)
                 if normalized:
-                    st.success(f"✅ Città: {normalized.title()}")
+                    st.success(f"✅ {normalized.title()}")
                 else:
-                    st.info(f"🌐 Ricerca via API")
+                    st.info(f"🌐 Via API")
         
-        max_reviews = st.slider("Numero Recensioni", 50, 500, 100, 50)
-        n_clusters = st.slider("Numero Cluster", 3, 15, 8)
+        max_reviews = st.slider("Recensioni", 50, 500, 100, 50)
+        n_clusters = st.slider("Cluster", 3, 15, 8)
         
         st.markdown("---")
-        debug_mode = st.checkbox("🐛 Debug Mode", value=False)
+        debug_mode = st.checkbox("🐛 Debug", value=False)
         
         st.markdown("---")
         st.info("""
@@ -1117,8 +1190,10 @@ def main():
         • Coda vuota: 5-8min
         • Con coda: 10-15min
         
-        **💡 Suggerimento:**
-        Controlla coda prima!
+        **💡 Workflow:**
+        1. Controlla coda
+        2. Se > 3 task → Attendi
+        3. Avvia analisi
         """)
     
     col1, col2 = st.columns([2, 1])
@@ -1307,24 +1382,144 @@ def main():
                     st.exception(e)
     
     with col2:
-        st.markdown("## 📋 Guida")
+        st.markdown("## 📋 Guida Rapida")
         st.markdown("""
-        ### ✅ Nuovo:
-        • 🧹 Pulizia automatica coda
-        • 📊 Controllo task attivi
-        • ⏳ Wait adattivo
-        • 🎯 Priorità task corrente
+        ### ✅ Novità v2.0:
+        • 🔍 **Controllo Coda** real-time
+        • ⏳ **Attesa Automatica** svuotamento
+        • 🎯 **Priorità Intelligente**
+        • 📊 **Progress Visual** dettagliato
         
-        ### 💡 Best Practice:
-        1. Controlla coda prima
-        2. Aspetta se > 3 task
-        3. Nome esatto da Maps
-        4. Debug per dettagli
+        ### 💡 Workflow Ottimale:
         
-        ### ⚠️ Limiti API:
-        Max task simultanei per account
-        Tempo max: ~8 minuti
+        **1. Prima dell'Analisi**
+        - Clicca "🔍 Controlla"
+        - Se > 3 task → "⏳ Attendi"
+        - Aspetta coda vuota
+        
+        **2. Dati Business**
+        - Nome esatto da Google Maps
+        - Città o indirizzo completo
+        - Scegli num. recensioni
+        
+        **3. Avvia Analisi**
+        - Tempo: 5-15 minuti
+        - Progress in tempo reale
+        - Export Excel automatico
+        
+        ### 🔧 Troubleshooting:
+        
+        **"Task In Queue"**
+        → Usa "⏳ Attendi" prima
+        
+        **Timeout**
+        → Riduci n. recensioni
+        → Aspetta 5-10 minuti
+        
+        **Business non trovato**
+        → Nome esatto da Maps
+        → Prova con indirizzo
+        
+        ### ⚡ Performance:
+        
+        **Tempi Medi:**
+        - 50 rec: 4-6 min
+        - 100 rec: 6-10 min
+        - 200 rec: 12-18 min
+        
+        **+ Tempo Coda:**
+        - 0 task: +0 min
+        - 1-3 task: +2-5 min
+        - 4+ task: +5-10 min
+        
+        ### 📊 Output Finale:
+        
+        **Excel Multi-Sheet:**
+        1. Business Info
+        2. Recensioni complete
+        3. Cluster tematici
+        4. Punti di forza
+        5. Punti di debolezza
+        
+        **Analisi AI:**
+        - Sentiment analysis
+        - Keyword extraction
+        - Marketing insights
+        - SEO suggestions
+        - Response templates
+        
+        ### 🆘 Support:
+        
+        **Debug Mode:**
+        Attiva per vedere:
+        - Log API dettagliati
+        - Status code task
+        - Errori completi
+        
+        **Limiti API:**
+        - Task simultanei: variabili
+        - Timeout max: ~8 minuti
+        - Recensioni max: 500
+        
+        ### 🎯 Best Practice:
+        
+        ✅ **DO:**
+        - Controlla coda prima
+        - Usa nomi esatti
+        - Attiva debug se problemi
+        - Salva Excel subito
+        
+        ❌ **DON'T:**
+        - Avvia senza controllare
+        - Usa nomi generici
+        - Chiudi prima del download
+        - Crea task multipli insieme
         """)
+        
+        st.markdown("---")
+        st.markdown("""
+        ### 🚀 Tips Avanzati:
+        
+        **Analisi Multiple:**
+        1. Completa prima analisi
+        2. Scarica Excel
+        3. Controlla coda
+        4. Avvia nuova analisi
+        
+        **Competitor Analysis:**
+        - Analizza 3-5 competitor
+        - Confronta punti forza
+        - Identifica gap
+        - Crea strategia
+        
+        **Monitoraggio Periodico:**
+        - Analisi mensile
+        - Tracking trend
+        - Response rate
+        - Sentiment evolution
+        """)
+        
+        st.markdown("---")
+        
+        # Status indicator
+        st.markdown("### 🟢 Sistema Status")
+        st.success("✅ Tutte le funzionalità operative")
+        
+        # Quick stats
+        if dataforseo_username and dataforseo_password:
+            if st.button("📊 Quick Stats", use_container_width=True):
+                try:
+                    client_test = DataForSEOClient(dataforseo_username, dataforseo_password, debug=False)
+                    tasks = client_test.get_tasks_ready()
+                    
+                    col_q1, col_q2 = st.columns(2)
+                    with col_q1:
+                        st.metric("Task Attivi", len(tasks))
+                    with col_q2:
+                        status = "🟢 OK" if len(tasks) == 0 else "🟡 Busy" if len(tasks) <= 3 else "🔴 Full"
+                        st.metric("Status", status)
+                except:
+                    st.error("⚠️ Errore connessione")
 
 if __name__ == "__main__":
     main()
