@@ -390,7 +390,7 @@ class DataForSEOClient:
         return query_clean
     
     def get_reviews(self, place_id, limit=100):
-        """Estrae recensioni con doppia strategia"""
+        """Estrae recensioni usando tasks_ready endpoint"""
         
         self._log(f"=== GET REVIEWS ===")
         self._log(f"Place ID: {place_id}")
@@ -415,72 +415,58 @@ class DataForSEOClient:
         task_id = tasks[0].get('id')
         self._log(f"Task ID: {task_id}")
         
-        # STEP 2: Prova con tasks_ready PRIMA
-        self._log("Strategy 1: tasks_ready...")
+        # STEP 2: Polling con tasks_ready
+        self._log("Waiting for completion...")
         
-        for attempt in range(30):
-            time.sleep(1)
+        max_attempts = 60
+        
+        for attempt in range(max_attempts):
+            time.sleep(2)  # Aspetta 2 secondi tra ogni check
             
             try:
+                # Check tasks ready
                 endpoint_ready = "business_data/google/reviews/tasks_ready"
+                
                 ready_result = self._make_request(endpoint_ready, data=None, method="GET")
                 
                 if ready_result.get('status_code') == 20000:
                     ready_tasks = ready_result.get('tasks', [])
                     
+                    if not ready_tasks:
+                        if self.debug and attempt % 5 == 0:
+                            self._log(f"No tasks ready yet ({attempt+1}/{max_attempts})")
+                        continue
+                    
+                    # Cerca il nostro task
                     for task in ready_tasks:
                         if task.get('id') == task_id:
-                            if task.get('result'):
-                                self._log(f"✅ Strategy 1 success in {attempt+1}s", "success")
-                                return task['result'][0]
-            
-            except Exception as e:
-                if attempt == 29:
-                    self._log(f"Strategy 1 failed, trying strategy 2...", "warning")
-                continue
-        
-        # STEP 3: Fallback con task_get diretto (più lento ma sicuro)
-        self._log("Strategy 2: direct task_get...")
-        
-        # Aspetta un po' di più
-        time.sleep(5)
-        
-        for attempt in range(20):
-            time.sleep(2)
-            
-            try:
-                # Costruisci URL manualmente per essere sicuri
-                task_get_url = f"{self.base_url}/business_data/google/reviews/task_get/{task_id}"
-                
-                headers = {
-                    'Authorization': f'Basic {self._get_auth_token()}'
-                }
-                
-                response = requests.get(task_get_url, headers=headers, timeout=30)
-                response.raise_for_status()
-                task_result = response.json()
-                
-                if task_result.get('status_code') == 20000:
-                    check_tasks = task_result.get('tasks', [])
+                            # Task trovato e completato
+                            if task.get('status_code') == 20000:
+                                if task.get('result'):
+                                    self._log(f"✅ Completed in {(attempt+1)*2}s", "success")
+                                    return task['result'][0]
+                            else:
+                                # Task con errore
+                                error_msg = task.get('status_message', 'Unknown error')
+                                raise Exception(f"Task error: {error_msg}")
                     
-                    if check_tasks:
-                        task_status = check_tasks[0]
-                        
-                        if task_status.get('status_code') == 20000:
-                            if task_status.get('result'):
-                                self._log(f"✅ Strategy 2 success in {attempt+1} attempts", "success")
-                                return task_status['result'][0]
-                        
-                        if self.debug and attempt % 5 == 0:
-                            status_code = task_status.get('status_code', 'unknown')
-                            self._log(f"Task status: {status_code}")
+                    # Task non ancora nella lista ready
+                    if self.debug and attempt % 5 == 0:
+                        self._log(f"Task not ready yet ({attempt+1}/{max_attempts})")
             
             except Exception as e:
-                if self.debug:
-                    self._log(f"Attempt {attempt+1}: {str(e)[:100]}", "warning")
+                error_str = str(e)
+                
+                # Se è un errore di task, solleva subito
+                if "Task error:" in error_str:
+                    raise
+                
+                # Altri errori, log e continua
+                if self.debug and attempt % 5 == 0:
+                    self._log(f"Check {attempt+1}: {error_str[:100]}", "warning")
                 continue
         
-        raise Exception("Timeout: reviews not available after all strategies")
+        raise Exception(f"Timeout: reviews not ready after {max_attempts*2} seconds")
 
 # 🔧 PROCESSING FUNCTIONS
 @st.cache_data
