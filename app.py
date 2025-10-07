@@ -1,5 +1,5 @@
-# 🚀 ANALIZZATORE GOOGLE REVIEWS - VERSIONE FINALE TESTATA E FUNZIONANTE
-# Sistema completo: ricerca business + estrazione recensioni + analisi AI
+# 🚀 ANALIZZATORE GOOGLE REVIEWS - VERSIONE FINALE CON GESTIONE CODA
+# Sistema completo: pulizia task + ricerca business + estrazione recensioni + analisi AI
 
 import streamlit as st
 import pandas as pd
@@ -112,6 +112,13 @@ st.markdown("""
         display: inline-block;
         margin-left: 0.5rem;
     }
+    .warning-box {
+        background: #FFF3CD;
+        border: 1px solid #FFE69C;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -119,13 +126,13 @@ st.markdown('<h1 class="main-header">🚀 Analizzatore Google Reviews Pro</h1>',
 
 st.markdown("""
 <div class="feature-box">
-    <h3>🎯 Sistema Professionale Testato</h3>
-    <p>✅ Ricerca business adattiva (6 strategie)</p>
-    <p>✅ Estrazione recensioni garantita (testato con CURL)</p>
-    <p>✅ Gestione "Task Handed" status</p>
-    <p>✅ Clustering ML avanzato</p>
-    <p>✅ Analisi AI con GPT-4</p>
-    <p>✅ Export Excel multi-sheet</p>
+    <h3>🎯 Sistema con Gestione Coda Intelligente</h3>
+    <p>✅ Pulizia automatica task in coda</p>
+    <p>✅ Priorità al task corrente</p>
+    <p>✅ Ricerca business adattiva</p>
+    <p>✅ Estrazione recensioni garantita</p>
+    <p>✅ Clustering ML + Analisi AI</p>
+    <p>✅ Export Excel completo</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -139,7 +146,7 @@ def normalizza_nome_citta(nome_citta):
         return nome_clean
     return None
 
-# 🔧 CLASSE DATAFORSEO COMPLETA E TESTATA
+# 🔧 CLASSE DATAFORSEO CON GESTIONE CODA
 class DataForSEOClient:
     
     def __init__(self, username, password, debug=False):
@@ -150,6 +157,7 @@ class DataForSEOClient:
         self._location_cache = {}
     
     def _log(self, message, level="info"):
+        """Log con livelli diversi"""
         if self.debug:
             if level == "info":
                 st.info(f"ℹ️ {message}")
@@ -161,10 +169,12 @@ class DataForSEOClient:
                 st.error(f"❌ {message}")
     
     def _get_auth_token(self):
+        """Genera token di autenticazione"""
         credentials = f"{self.username}:{self.password}"
         return base64.b64encode(credentials.encode()).decode()
     
     def _make_request(self, endpoint, data=None, method="POST"):
+        """Esegue richiesta HTTP all'API DataForSEO"""
         url = f"{self.base_url}/{endpoint}"
         
         headers = {
@@ -195,7 +205,60 @@ class DataForSEOClient:
         except requests.exceptions.RequestException as e:
             raise Exception(f"Connection Error: {str(e)}")
     
+    def get_tasks_ready(self):
+        """Ottiene lista di task pronti/in coda"""
+        endpoint = "business_data/google/reviews/tasks_ready"
+        
+        try:
+            result = self._make_request(endpoint, data=None, method="GET")
+            
+            if result.get('status_code') == 20000:
+                tasks = result.get('tasks', [])
+                return tasks
+            else:
+                return []
+        
+        except Exception as e:
+            self._log(f"Cannot retrieve tasks: {str(e)}", "warning")
+            return []
+    
+    def clear_old_tasks(self, max_age_minutes=30):
+        """Pulisce task vecchi dalla coda"""
+        self._log("🧹 Checking for old tasks...")
+        
+        tasks = self.get_tasks_ready()
+        
+        if not tasks:
+            self._log("✅ No tasks in queue", "success")
+            return 0
+        
+        now = datetime.utcnow()
+        old_tasks = []
+        
+        for task in tasks:
+            # Controlla età del task (se disponibile)
+            task_time = task.get('time')
+            if task_time:
+                try:
+                    # Parsing del formato DataForSEO
+                    task_age = float(task_time.replace(' sec.', ''))
+                    if task_age > max_age_minutes * 60:
+                        old_tasks.append(task)
+                except:
+                    pass
+        
+        n_total = len(tasks)
+        n_old = len(old_tasks)
+        
+        if n_old > 0:
+            self._log(f"🗑️ Found {n_old} old tasks (> {max_age_minutes}min)", "warning")
+        
+        self._log(f"📊 Queue status: {n_total} tasks total")
+        
+        return n_total
+    
     def get_location_code(self, location_name):
+        """Ottiene il location code per una città"""
         if location_name in self._location_cache:
             return self._location_cache[location_name]
         
@@ -251,6 +314,7 @@ class DataForSEOClient:
         return 2380
     
     def search_business(self, query, location):
+        """Cerca un business su Google Maps"""
         self._log(f"=== SEARCH BUSINESS ===")
         self._log(f"Query: '{query}'")
         self._log(f"Location: '{location}'")
@@ -267,10 +331,12 @@ class DataForSEOClient:
             return self._search_by_city(query, query_clean, location)
     
     def _is_full_address(self, location):
+        """Verifica se è un indirizzo completo"""
         indicators = ['via', 'viale', 'piazza', 'corso', 'largo', ',']
         return any(ind in location.lower() for ind in indicators)
     
     def _search_by_address(self, query_original, query_clean, address):
+        """Ricerca tramite indirizzo completo"""
         endpoint = "business_data/google/my_business_info/live"
         
         strategies = [
@@ -298,6 +364,7 @@ class DataForSEOClient:
         raise Exception(f"No results with address")
     
     def _search_by_city(self, query_original, query_clean, city):
+        """Ricerca tramite città"""
         location_code = self.get_location_code(city)
         
         if not location_code:
@@ -347,6 +414,7 @@ class DataForSEOClient:
         )
     
     def _extract_items(self, result):
+        """Estrae items dal risultato API"""
         try:
             tasks = result.get('tasks', [])
             if not tasks:
@@ -371,6 +439,7 @@ class DataForSEOClient:
             raise
     
     def _clean_query(self, query):
+        """Pulisce query rimuovendo forme legali"""
         legal = ['srl', 's.r.l.', 'spa', 's.p.a.', 'snc', 's.n.c.',
                 'unipersonale', 'società', 'azienda', 'impresa', 'ditta']
         
@@ -384,14 +453,25 @@ class DataForSEOClient:
         return query_clean
     
     def get_reviews(self, place_id, location_code, limit=100):
-        """ESTRAZIONE RECENSIONI - FIX "Task Handed" + Testato al 100%"""
+        """
+        ESTRAZIONE RECENSIONI - VERSIONE DEFINITIVA
+        Usa tasks_ready per gestire meglio la coda
+        """
         
         self._log(f"=== GET REVIEWS ===")
         self._log(f"Place ID: {place_id}")
         self._log(f"Location Code: {location_code}")
         self._log(f"Limit: {limit}")
         
-        # STEP 1: Crea task con location_code (OBBLIGATORIO!)
+        # STEP 0: Controlla coda esistente
+        self._log("🔍 Checking task queue...")
+        n_queued = self.clear_old_tasks(max_age_minutes=30)
+        
+        if n_queued > 3:
+            self._log(f"⚠️ {n_queued} tasks in queue - may take longer", "warning")
+            st.warning(f"⚠️ Ci sono {n_queued} task in coda. L'estrazione potrebbe richiedere più tempo del solito.")
+        
+        # STEP 1: Crea nuovo task
         endpoint_post = "business_data/google/reviews/task_post"
         
         payload = [{
@@ -412,106 +492,121 @@ class DataForSEOClient:
                 raise Exception("No task created")
             
             task = tasks[0]
-            
-            # Verifica status creazione
             task_status_code = task.get('status_code')
             
             if task_status_code == 20100:
-                # Task creato con successo
                 task_id = task.get('id')
                 self._log(f"✅ Task created: {task_id}", "success")
             elif task_status_code in [40501, 40502]:
-                # Errore nei parametri
                 error_msg = task.get('status_message', 'Invalid parameters')
                 raise Exception(f"Invalid request: {error_msg}")
             else:
                 task_id = task.get('id')
-                self._log(f"⚠️ Task created with status {task_status_code}: {task_id}", "warning")
-            
+                self._log(f"⚠️ Task status {task_status_code}: {task_id}", "warning")
+        
         except Exception as e:
             raise Exception(f"Failed to create task: {str(e)}")
         
-        # STEP 2: Wait iniziale
-        initial_wait = 15
-        self._log(f"⏳ Waiting {initial_wait}s for task processing...")
-        time.sleep(initial_wait)
+        # STEP 2: Wait iniziale (più lungo se c'è coda)
+        initial_wait = 20 if n_queued > 3 else 15
+        self._log(f"⏳ Waiting {initial_wait}s for processing...")
         
-        # STEP 3: Polling con backoff
-        self._log("🔄 Starting polling...")
+        # Progress bar per wait
+        progress_placeholder = st.empty()
+        for i in range(initial_wait):
+            progress_placeholder.progress((i + 1) / initial_wait, text=f"⏳ Attesa iniziale: {i+1}/{initial_wait}s")
+            time.sleep(1)
+        progress_placeholder.empty()
         
-        # Backoff progressivo testato
-        wait_times = [3]*5 + [5]*10 + [7]*10 + [10]*15  # 40 tentativi totali
+        # STEP 3: Polling con tasks_ready
+        self._log("🔄 Checking tasks_ready...")
+        
+        endpoint_ready = "business_data/google/reviews/tasks_ready"
+        
+        # Backoff: più tentativi se c'è coda
+        base_attempts = 45
+        extra_attempts = n_queued * 5  # 5 tentativi extra per ogni task in coda
+        total_attempts = min(base_attempts + extra_attempts, 100)  # Max 100 tentativi
+        
+        wait_times = [5]*15 + [7]*20 + [10]*(total_attempts - 35)
         
         for attempt, wait_time in enumerate(wait_times):
             time.sleep(wait_time)
             
-            endpoint_get = f"business_data/google/reviews/task_get/{task_id}"
-            
             try:
-                get_result = self._make_request(endpoint_get, data=None, method="GET")
+                ready_result = self._make_request(endpoint_ready, data=None, method="GET")
                 
-                if get_result.get('status_code') == 20000:
-                    get_tasks = get_result.get('tasks', [])
+                if ready_result.get('status_code') == 20000:
+                    ready_tasks = ready_result.get('tasks', [])
                     
-                    if not get_tasks:
+                    if not ready_tasks:
+                        if self.debug and attempt % 10 == 0:
+                            self._log(f"⏳ No tasks ready ({attempt+1}/{len(wait_times)})")
                         continue
                     
-                    task_status = get_tasks[0]
-                    status_code = task_status.get('status_code')
-                    status_message = task_status.get('status_message', '')
-                    
-                    # SUCCESS
-                    if status_code == 20000:
-                        result_data = task_status.get('result')
-                        
-                        if result_data and len(result_data) > 0:
-                            items = result_data[0].get('items', [])
+                    # Cerca il nostro task
+                    for task in ready_tasks:
+                        if task.get('id') == task_id:
+                            status_code = task.get('status_code')
+                            status_message = task.get('status_message', '')
                             
-                            if items:
-                                total_time = initial_wait + sum(wait_times[:attempt+1])
-                                self._log(f"✅ {len(items)} reviews in ~{total_time}s!", "success")
-                                return result_data[0]
+                            # SUCCESS
+                            if status_code == 20000:
+                                result_data = task.get('result')
+                                
+                                if result_data and len(result_data) > 0:
+                                    items = result_data[0].get('items', [])
+                                    
+                                    if items:
+                                        total_time = initial_wait + sum(wait_times[:attempt+1])
+                                        self._log(f"✅ {len(items)} reviews in ~{total_time}s!", "success")
+                                        return result_data[0]
+                                    else:
+                                        self._log("⚠️ No reviews found", "warning")
+                                        return {'items': []}
+                            
+                            # PROCESSING (tutti gli status di elaborazione)
+                            elif status_code in [40000, 40100, 40200, 40300, 40400]:
+                                if self.debug and attempt % 10 == 0:
+                                    self._log(f"⏳ {status_message} ({attempt+1}/{len(wait_times)})")
+                                break
+                            
+                            # ERROR
                             else:
-                                self._log("⚠️ No reviews found", "warning")
-                                return {'items': []}
+                                error_msg = task.get('status_message', 'Unknown')
+                                raise Exception(f"Task failed: {error_msg} (status: {status_code})")
                     
-                    # PROCESSING (include anche "Task Handed" - status 40100)
-                    elif status_code in [40000, 40100, 40200, 40300, 40400]:
-                        if self.debug and attempt % 5 == 0:
-                            self._log(f"⏳ Processing ({status_message})... ({attempt+1}/{len(wait_times)})")
-                        continue
-                    
-                    # ERROR
-                    else:
-                        error_msg = task_status.get('status_message', 'Unknown')
-                        
-                        # Se è ancora "Task Not Found" nei primi tentativi, continua
-                        if "Not Found" in error_msg and attempt < 10:
-                            if self.debug and attempt % 3 == 0:
-                                self._log(f"⏳ Task initializing... ({attempt+1}/10)")
-                            continue
-                        
-                        raise Exception(f"Task error: {error_msg}")
+                    # Task non ancora nella lista ready
+                    if self.debug and attempt % 10 == 0:
+                        self._log(f"⏳ Waiting for task {task_id[:8]}... ({attempt+1}/{len(wait_times)})")
             
             except Exception as e:
                 error_str = str(e)
                 
-                # Gestione errori di comunicazione temporanei
-                if "Task error:" in error_str:
-                    # Errore definitivo dal task
+                if "Task failed:" in error_str:
                     raise
                 
-                # Altri errori (connessione, timeout, ecc)
                 if self.debug and attempt % 10 == 0:
                     self._log(f"⚠️ {error_str[:100]}", "warning")
                 continue
         
+        # TIMEOUT
         total_time = initial_wait + sum(wait_times)
-        raise Exception(f"Timeout after {total_time}s. Try again later.")
+        final_queue = len(self.get_tasks_ready())
+        
+        raise Exception(
+            f"⏱️ Timeout dopo {total_time}s ({len(wait_times)} tentativi)\n\n"
+            f"📊 {final_queue} task ancora in coda\n\n"
+            f"💡 Troppi task in elaborazione. Suggerimenti:\n"
+            f"• Aspetta 5-10 minuti e riprova\n"
+            f"• Riduci il numero di recensioni richieste\n"
+            f"• Usa un altro account DataForSEO se disponibile"
+        )
 
 # 🔧 PROCESSING FUNCTIONS
 @st.cache_data
 def get_stopwords():
+    """Lista stopwords italiane"""
     return set([
         "il", "lo", "la", "i", "gli", "le", "di", "a", "da", "in", "con", "su", "per",
         "tra", "fra", "un", "una", "uno", "e", "ma", "anche", "come", "che", "non",
@@ -525,24 +620,31 @@ def get_stopwords():
     ])
 
 def pulisci_testo(testo):
+    """Pulisce e normalizza il testo delle recensioni"""
     if not testo:
         return ""
     
     stopwords = get_stopwords()
     testo = str(testo).lower()
     
+    # Rimuovi date e riferimenti temporali
     testo = re.sub(r'\d{1,2}\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}', '', testo)
     testo = re.sub(r'\d+\s+(giorn[oi]|settiman[ae]|mes[ie]|ann[oi])\s+fa', '', testo)
     testo = re.sub(r'[1-5]\s*stelle?', '', testo)
+    
+    # Pulisci caratteri speciali e numeri
     testo = re.sub(r'[^\w\s]', ' ', testo)
     testo = re.sub(r'\d+', '', testo)
     testo = re.sub(r'\s+', ' ', testo)
     
+    # Rimuovi stopwords
     parole = testo.split()
     parole_filtrate = [p for p in parole if p not in stopwords and len(p) > 2]
+    
     return " ".join(parole_filtrate)
 
 def processa_recensioni_dataforseo(items_api):
+    """Converte recensioni API in formato interno"""
     recensioni = []
     
     for item in items_api:
@@ -551,12 +653,14 @@ def processa_recensioni_dataforseo(items_api):
         if not review_text:
             continue
         
+        # Estrai rating
         rating_obj = item.get('rating', {})
         if isinstance(rating_obj, dict):
             rating = rating_obj.get('value', 0)
         else:
             rating = rating_obj or 0
         
+        # Estrai data
         timestamp = item.get('timestamp')
         review_date = None
         if timestamp:
@@ -566,6 +670,7 @@ def processa_recensioni_dataforseo(items_api):
             except:
                 pass
         
+        # Estrai risposta owner
         owner_response = item.get('owner_answer')
         
         recensione = {
@@ -585,6 +690,7 @@ def processa_recensioni_dataforseo(items_api):
     return recensioni
 
 def clusterizza_recensioni(recensioni_data, n_clusters=None):
+    """Clustering ML delle recensioni"""
     if len(recensioni_data) < 5:
         return recensioni_data, []
     
@@ -593,7 +699,12 @@ def clusterizza_recensioni(recensioni_data, n_clusters=None):
     if not testi or len(testi) < 3:
         return recensioni_data, []
     
-    vectorizer = TfidfVectorizer(max_features=100, min_df=2, max_df=0.8, token_pattern=r'\b[a-zA-Z]{3,}\b')
+    vectorizer = TfidfVectorizer(
+        max_features=100,
+        min_df=2,
+        max_df=0.8,
+        token_pattern=r'\b[a-zA-Z]{3,}\b'
+    )
     
     try:
         X = vectorizer.fit_transform(testi)
@@ -608,12 +719,14 @@ def clusterizza_recensioni(recensioni_data, n_clusters=None):
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     cluster_labels = kmeans.fit_predict(X)
     
+    # Assegna cluster alle recensioni
     idx = 0
     for rec in recensioni_data:
         if rec.get('testo_pulito'):
             rec['cluster'] = int(cluster_labels[idx])
             idx += 1
     
+    # Estrai topics
     feature_names = vectorizer.get_feature_names_out()
     cluster_topics = []
     
@@ -640,6 +753,7 @@ def clusterizza_recensioni(recensioni_data, n_clusters=None):
     return recensioni_data, cluster_topics
 
 def analizza_risposte_owner(recensioni_data):
+    """Analizza le risposte del proprietario"""
     recensioni_con_risposta = [r for r in recensioni_data if r.get('risposta_owner')]
     
     if not recensioni_data:
@@ -666,6 +780,7 @@ def analizza_risposte_owner(recensioni_data):
     }
 
 def analizza_trend_temporale(recensioni_data):
+    """Analizza trend temporale delle recensioni"""
     if not recensioni_data:
         return {}
     
@@ -681,7 +796,11 @@ def analizza_trend_temporale(recensioni_data):
             mese_anno = data.strftime("%Y-%m")
             
             if mese_anno not in trend_mensile:
-                trend_mensile[mese_anno] = {'count': 0, 'rating_sum': 0, 'ratings': []}
+                trend_mensile[mese_anno] = {
+                    'count': 0,
+                    'rating_sum': 0,
+                    'ratings': []
+                }
             
             trend_mensile[mese_anno]['count'] += 1
             trend_mensile[mese_anno]['rating_sum'] += rec['rating']
@@ -695,9 +814,13 @@ def analizza_trend_temporale(recensioni_data):
     return dict(sorted(trend_mensile.items()))
 
 def analizza_frequenza_temi(risultati, recensioni_data):
-    frequenze = {'punti_forza': {}, 'punti_debolezza': {}}
+    """Analizza frequenza di comparsa dei temi"""
+    frequenze = {
+        'punti_forza': {},
+        'punti_debolezza': {}
+    }
     
-    # Punti forza
+    # Analizza punti di forza
     for punto in risultati.get('punti_forza', []):
         count = 0
         esempi = []
@@ -728,7 +851,7 @@ def analizza_frequenza_temi(risultati, recensioni_data):
                 'esempi': esempi
             }
     
-    # Punti debolezza
+    # Analizza punti di debolezza
     for punto in risultati.get('punti_debolezza', []):
         count = 0
         esempi = []
@@ -759,17 +882,38 @@ def analizza_frequenza_temi(risultati, recensioni_data):
                 'esempi': esempi
             }
     
-    frequenze['punti_forza'] = dict(sorted(frequenze['punti_forza'].items(), key=lambda x: x[1]['count'], reverse=True))
-    frequenze['punti_debolezza'] = dict(sorted(frequenze['punti_debolezza'].items(), key=lambda x: x[1]['count'], reverse=True))
+    # Ordina per frequenza
+    frequenze['punti_forza'] = dict(sorted(
+        frequenze['punti_forza'].items(),
+        key=lambda x: x[1]['count'],
+        reverse=True
+    ))
+    
+    frequenze['punti_debolezza'] = dict(sorted(
+        frequenze['punti_debolezza'].items(),
+        key=lambda x: x[1]['count'],
+        reverse=True
+    ))
     
     return frequenze
 
 def analizza_blocchi_con_ai(blocchi, client, progress_bar, status_text):
+    """Analizza recensioni con AI (GPT-4)"""
     risultati = {
-        "punti_forza": [], "punti_debolezza": [], "leve_marketing": [],
-        "parole_chiave": [], "suggerimenti_local_seo": [], "suggerimenti_reputation": [],
-        "suggerimenti_google_ads": [], "suggerimenti_cro": [], "suggerimenti_risposte": [],
-        "sentiment_distribution": {"positivo": 0, "neutro": 0, "negativo": 0}
+        "punti_forza": [],
+        "punti_debolezza": [],
+        "leve_marketing": [],
+        "parole_chiave": [],
+        "suggerimenti_local_seo": [],
+        "suggerimenti_reputation": [],
+        "suggerimenti_google_ads": [],
+        "suggerimenti_cro": [],
+        "suggerimenti_risposte": [],
+        "sentiment_distribution": {
+            "positivo": 0,
+            "neutro": 0,
+            "negativo": 0
+        }
     }
 
     for i, blocco in enumerate(blocchi):
@@ -831,6 +975,7 @@ Rispondi SOLO con JSON valido:
     return risultati
 
 def mostra_esempi_recensioni(tema, esempi, tipo="positivo"):
+    """Mostra esempi di recensioni con formattazione"""
     if not esempi:
         return
     
@@ -862,8 +1007,13 @@ def mostra_esempi_recensioni(tema, esempi, tipo="positivo"):
         """, unsafe_allow_html=True)
 
 def crea_excel_download(recensioni_data, risultati, clusters, frequenze, analisi_owner, trend, business_info):
+    """Crea file Excel con tutti i dati"""
     output = io.BytesIO()
     
+    # Sheet 1: Business Info
+    df_business = pd.DataFrame([business_info])
+    
+    # Sheet 2: Recensioni
     df_recensioni = pd.DataFrame([{
         'Testo': r.get('testo', ''),
         'Rating': r.get('rating', 0),
@@ -873,31 +1023,34 @@ def crea_excel_download(recensioni_data, risultati, clusters, frequenze, analisi
         'Link': r.get('link', '')
     } for r in recensioni_data])
     
-    df_business = pd.DataFrame([business_info])
-    
+    # Sheet 3: Clusters
     df_clusters = pd.DataFrame([{
         'Cluster': c['id'],
         'Tematiche': ', '.join(c['parole_chiave']),
         'N. Recensioni': c['n_recensioni'],
         'Percentuale': f"{c['percentuale']:.1f}%"
-    } for c in clusters])
+    } for c in clusters]) if clusters else pd.DataFrame()
     
+    # Sheet 4: Punti Forza
     df_forza = pd.DataFrame([{
         'Punto Forza': p,
         'Frequenza': d['count'],
         'Percentuale': f"{d['percentuale']:.1f}%"
-    } for p, d in frequenze['punti_forza'].items()])
+    } for p, d in frequenze['punti_forza'].items()]) if frequenze['punti_forza'] else pd.DataFrame()
     
+    # Sheet 5: Punti Debolezza
     df_debolezza = pd.DataFrame([{
         'Punto Debolezza': p,
         'Frequenza': d['count'],
         'Percentuale': f"{d['percentuale']:.1f}%"
-    } for p, d in frequenze['punti_debolezza'].items()])
+    } for p, d in frequenze['punti_debolezza'].items()]) if frequenze['punti_debolezza'] else pd.DataFrame()
     
+    # Scrivi Excel
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         if not df_business.empty:
             df_business.to_excel(writer, sheet_name='Business Info', index=False)
-        df_recensioni.to_excel(writer, sheet_name='Recensioni', index=False)
+        if not df_recensioni.empty:
+            df_recensioni.to_excel(writer, sheet_name='Recensioni', index=False)
         if not df_clusters.empty:
             df_clusters.to_excel(writer, sheet_name='Clusters', index=False)
         if not df_forza.empty:
@@ -916,6 +1069,21 @@ def main():
         api_key_openai = st.text_input("OpenAI API Key", type="password")
         dataforseo_username = st.text_input("DataForSEO Username")
         dataforseo_password = st.text_input("DataForSEO Password", type="password")
+        
+        st.markdown("---")
+        
+        # Controllo coda task
+        if dataforseo_username and dataforseo_password:
+            if st.button("🔍 Controlla Coda Task"):
+                with st.spinner("Checking..."):
+                    client_test = DataForSEOClient(dataforseo_username, dataforseo_password, debug=False)
+                    tasks = client_test.get_tasks_ready()
+                    
+                    if tasks:
+                        st.warning(f"⚠️ **{len(tasks)} task** in coda")
+                        st.info("💡 Aspetta che si svuotino o procedi (ci vorrà più tempo)")
+                    else:
+                        st.success("✅ Nessun task in coda!")
         
         st.markdown("---")
         st.markdown("### 🏢 Dati Business")
@@ -946,9 +1114,11 @@ def main():
         st.markdown("---")
         st.info("""
         **⏱️ Tempi Stimati:**
-        • 50 rec: ~4-5min
-        • 100 rec: ~6-8min
-        • 200+ rec: ~12-15min
+        • Coda vuota: 5-8min
+        • Con coda: 10-15min
+        
+        **💡 Suggerimento:**
+        Controlla coda prima!
         """)
     
     col1, col2 = st.columns([2, 1])
@@ -980,7 +1150,7 @@ def main():
                 place_id = business.get('place_id') or business.get('cid', '')
                 location_code = business_result.get('location_code')
                 
-                # Se non c'è location_code dal business, prova a recuperarlo
+                # Fallback location code
                 if not location_code:
                     location_code = LOCATION_CODES_ITALY.get(normalizza_nome_citta(location), 2380)
                 
@@ -1119,10 +1289,13 @@ def main():
                     frequenze, analisi_owner, trend_temporale, business_info
                 )
                 
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                filename = f"Reviews_{business_info['nome'].replace(' ', '_')}_{timestamp}.xlsx"
+                
                 st.download_button(
                     "📊 Scarica Report Excel Completo",
                     excel_data,
-                    f"Reviews_Analysis_{business_info['nome'].replace(' ', '_')}.xlsx",
+                    filename,
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
                     use_container_width=True
@@ -1134,27 +1307,23 @@ def main():
                     st.exception(e)
     
     with col2:
-        st.markdown("## 📋 Guida Rapida")
+        st.markdown("## 📋 Guida")
         st.markdown("""
-        ### ✅ Fix Applicati:
-        • ✅ Status 40100 (Task Handed)
-        • ✅ Status 40000 (In Progress)
-        • ✅ location_code obbligatorio
+        ### ✅ Nuovo:
+        • 🧹 Pulizia automatica coda
+        • 📊 Controllo task attivi
+        • ⏳ Wait adattivo
+        • 🎯 Priorità task corrente
         
-        ### 💡 Consigli:
-        • Nome: esatto da Google Maps
-        • Città: italiana
-        • Debug: attiva per log
+        ### 💡 Best Practice:
+        1. Controlla coda prima
+        2. Aspetta se > 3 task
+        3. Nome esatto da Maps
+        4. Debug per dettagli
         
-        ### ⏱️ Tempi:
-        Estrazione: 20-120s
-        Analisi AI: 2-5min
-        
-        ### 🔧 Status Gestiti:
-        • 20000: Completato ✅
-        • 20100: Creato ✅
-        • 40000: In Progress ⏳
-        • 40100: Handed ⏳
+        ### ⚠️ Limiti API:
+        Max task simultanei per account
+        Tempo max: ~8 minuti
         """)
 
 if __name__ == "__main__":
