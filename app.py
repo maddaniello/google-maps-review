@@ -543,56 +543,41 @@ class DataForSEOClient:
         
         return query_clean
     
-    def get_reviews(self, place_id, limit=100):
-        """Estrae recensioni"""
+def _make_request(self, endpoint, data=None, method="POST"):
+    """Effettua richiesta API con gestione GET/POST"""
+    url = f"{self.base_url}/{endpoint}"
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'Authorization': f'Basic {self._get_auth_token()}'
+    }
+    
+    self._log(f"API: {method} {endpoint}")
+    
+    try:
+        if method == "POST":
+            response = requests.post(url, headers=headers, json=data, timeout=30)
+        elif method == "GET":
+            # GET può avere params o niente
+            if data:
+                response = requests.get(url, headers=headers, params=data, timeout=30)
+            else:
+                # GET senza parametri
+                response = requests.get(url, headers=headers, timeout=30)
+        else:
+            raise Exception(f"Metodo {method} non supportato")
         
-        self._log(f"=== ESTRAZIONE RECENSIONI ===")
-        self._log(f"Place ID: {place_id}")
-        self._log(f"Limite: {limit}")
+        response.raise_for_status()
+        result = response.json()
         
-        endpoint = "business_data/google/reviews/task_post"
-        
-        payload = [{
-            "place_id": place_id,
-            "language_code": "it",
-            "depth": min(limit, 500),
-            "sort_by": "newest"
-        }]
-        
-        result = self._make_request(endpoint, payload)
-        
-        tasks = result.get('tasks', [])
-        if not tasks:
-            raise Exception("Nessun task creato")
-        
-        task_id = tasks[0].get('id')
-        self._log(f"Task ID: {task_id}")
-        
-        # Attendi completamento
-        for attempt in range(30):
-            time.sleep(1)
-            
-            check_endpoint = f"business_data/google/reviews/task_get/{task_id}"
-            
-            try:
-                check_result = self._make_request(check_endpoint, [])
-                
-                check_tasks = check_result.get('tasks', [])
-                if check_tasks:
-                    task_status = check_tasks[0]
-                    
-                    if task_status.get('status_code') == 20000:
-                        if task_status.get('result'):
-                            self._log(f"✅ Estratte dopo {attempt+1}s", "success")
-                            return task_status['result'][0]
-                
-                if self.debug and attempt % 5 == 0:
-                    self._log(f"Tentativo {attempt+1}/30...")
-            
-            except Exception as e:
-                self._log(f"Errore check: {e}", "warning")
-        
-        raise Exception("Timeout: recensioni non disponibili dopo 30s")
+        if result.get('status_code') == 20000:
+            return result
+        else:
+            error_msg = result.get('status_message', 'Unknown error')
+            raise Exception(f"API Error: {error_msg}")
+    
+    except requests.exceptions.RequestException as e:
+        raise Exception(f"Connection Error: {str(e)}")
 
 # 🔧 FUNZIONI PROCESSING
 @st.cache_data
