@@ -1,5 +1,5 @@
-# 🚀 ANALIZZATORE GOOGLE REVIEWS - STREAMLIT APP
-# Versione completa con DataForSEO API Integration
+# 🚀 ANALIZZATORE GOOGLE REVIEWS - VERSIONE COMPLETA FINALE
+# Con DataForSEO, Clustering, AI Analysis e Export completo
 
 import streamlit as st
 import pandas as pd
@@ -15,6 +15,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.cluster import KMeans
 from datetime import datetime, timedelta
 import requests
+import base64
 warnings.filterwarnings('ignore')
 
 # 🎨 CONFIGURAZIONE PAGINA
@@ -47,15 +48,6 @@ st.markdown("""
         box-shadow: 0 10px 25px rgba(0,0,0,0.1);
     }
     
-    .metric-card {
-        background: white;
-        padding: 1rem;
-        border-radius: 10px;
-        border-left: 4px solid #4285F4;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        margin: 0.5rem 0;
-    }
-    
     .success-box {
         background: linear-gradient(135deg, #34A853 0%, #7CB342 100%);
         padding: 1rem;
@@ -71,6 +63,14 @@ st.markdown("""
         border-radius: 10px;
         color: white;
         text-align: center;
+        margin: 1rem 0;
+    }
+    
+    .business-card {
+        background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+        padding: 1.5rem;
+        border-radius: 15px;
+        color: white;
         margin: 1rem 0;
     }
     
@@ -115,18 +115,9 @@ st.markdown("""
         display: inline-block;
         margin-left: 0.5rem;
     }
-    
-    .business-card {
-        background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
-        padding: 1.5rem;
-        border-radius: 15px;
-        color: white;
-        margin: 1rem 0;
-    }
 </style>
 """, unsafe_allow_html=True)
 
-# 🏠 HEADER PRINCIPALE
 st.markdown('<h1 class="main-header">🚀 Analizzatore Google Reviews Pro</h1>', unsafe_allow_html=True)
 
 st.markdown("""
@@ -135,108 +126,184 @@ st.markdown("""
     <p>• Cerca automaticamente attività su Google Maps tramite DataForSEO</p>
     <p>• Estrae recensioni con rating, date, autori e risposte del proprietario</p>
     <p>• Clusterizza le recensioni per tematiche comuni</p>
-    <p>• Analizza la frequenza e il peso di ogni punto critico</p>
-    <p>• Mostra esempi reali di recensioni positive/negative</p>
-    <p>• Analizza le risposte del proprietario e il tasso di risposta</p>
+    <p>• Analizza sentiment e frequenza dei punti critici</p>
     <p>• Genera strategie di Digital Marketing personalizzate</p>
-    <p>• Fornisce suggerimenti specifici per Local SEO, Reputation Management e CRO</p>
+    <p>• Export completo Excel e JSON</p>
 </div>
 """, unsafe_allow_html=True)
 
-# 🔧 CLASSE DATAFORSEO CLIENT
+# 🔧 CLASSE DATAFORSEO
 class DataForSEOClient:
-    """Client DataForSEO con gestione automatica location"""
+    """Client DataForSEO con gestione intelligente"""
     
-    def __init__(self, username, password):
+    def __init__(self, username, password, debug=False):
         self.username = username
         self.password = password
         self.base_url = "https://api.dataforseo.com/v3"
+        self.debug = debug
         self._location_cache = {}
     
+    def _log(self, message, level="info"):
+        """Log messaggi"""
+        if self.debug:
+            if level == "info":
+                st.info(f"ℹ️ {message}")
+            elif level == "success":
+                st.success(f"✅ {message}")
+            elif level == "warning":
+                st.warning(f"⚠️ {message}")
+            elif level == "error":
+                st.error(f"❌ {message}")
+    
+    def _make_request(self, endpoint, data, method="POST"):
+        """Effettua richiesta API"""
+        url = f"{self.base_url}/{endpoint}"
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Basic {self._get_auth_token()}'
+        }
+        
+        self._log(f"API Call: {method} {endpoint}")
+        
+        try:
+            if method == "POST":
+                response = requests.post(url, headers=headers, json=data, timeout=30)
+            else:
+                response = requests.get(url, headers=headers, params=data, timeout=30)
+            
+            response.raise_for_status()
+            result = response.json()
+            
+            if result.get('status_code') == 20000:
+                self._log("API Response: OK", "success")
+                return result
+            else:
+                error_msg = result.get('status_message', 'Unknown error')
+                self._log(f"API Error: {error_msg}", "error")
+                raise Exception(f"API Error: {error_msg}")
+        
+        except requests.exceptions.RequestException as e:
+            self._log(f"Connection Error: {str(e)}", "error")
+            raise Exception(f"Connection Error: {str(e)}")
+    
+    def _get_auth_token(self):
+        """Genera token Basic Auth"""
+        credentials = f"{self.username}:{self.password}"
+        return base64.b64encode(credentials.encode()).decode()
+    
+    def get_location_code(self, location_name):
+        """Ottiene location_code"""
+        
+        if location_name in self._location_cache:
+            return self._location_cache[location_name]
+        
+        self._log(f"Searching location code for: {location_name}")
+        
+        try:
+            endpoint = "business_data/google/locations"
+            params = {'location_name': location_name}
+            
+            result = self._make_request(endpoint, params, method="GET")
+            
+            tasks = result.get('tasks', [])
+            if tasks and tasks[0].get('result'):
+                locations = tasks[0]['result']
+                
+                if locations:
+                    location_code = locations[0].get('location_code')
+                    location_full = locations[0].get('location_name')
+                    
+                    self._log(f"Found: {location_full} (code: {location_code})", "success")
+                    
+                    self._location_cache[location_name] = location_code
+                    return location_code
+            
+            self._log(f"Location not found, using Italy", "warning")
+            return 2380
+        
+        except Exception as e:
+            self._log(f"Location search error: {e}", "warning")
+            return 2380
+    
     def search_business(self, query, location):
-        """Cerca attività con location_code automatico"""
+        """Cerca attività"""
+        
+        self._log(f"=== BUSINESS SEARCH START ===")
+        self._log(f"Original query: '{query}'")
+        self._log(f"Original location: '{location}'")
         
         # Pulisci query
-        query_pulita = self._pulisci_query(query)
+        query_clean = self._clean_query(query)
+        self._log(f"Cleaned query: '{query_clean}'")
         
         # Ottieni location_code
-        location_code = self._get_location_code(location)
+        location_code = self.get_location_code(location)
         
         if not location_code:
-            st.warning(f"⚠️ Location code non trovato per '{location}', uso Italia")
-            location_code = 2380  # Italia come fallback
+            raise Exception(f"Cannot find location code for '{location}'")
         
-        st.info(f"📍 Usando location_code: {location_code}")
+        self._log(f"Location code: {location_code}")
         
-        # Endpoint my_business_info
+        # Cerca
         endpoint = "business_data/google/my_business_info/live"
         
         payload = [{
-            "keyword": query_pulita,
+            "keyword": query_clean,
             "location_code": location_code,
             "language_code": "it"
         }]
         
         result = self._make_request(endpoint, payload)
         
-        if result.get('status_code') == 20000:
-            tasks = result.get('tasks', [])
-            if tasks and tasks[0].get('status_code') == 20000:
-                if tasks[0].get('result'):
-                    items = tasks[0]['result'][0].get('items', [])
-                    if items:
-                        return {'items': items}
+        tasks = result.get('tasks', [])
         
-        return None
+        if not tasks:
+            raise Exception("No tasks in response")
+        
+        task = tasks[0]
+        
+        if task.get('status_code') != 20000:
+            error_msg = task.get('status_message', 'Unknown error')
+            raise Exception(f"Task error: {error_msg}")
+        
+        task_result = task.get('result')
+        if not task_result:
+            raise Exception("No result in task")
+        
+        items = task_result[0].get('items', [])
+        
+        if not items:
+            raise Exception(f"No business found for '{query_clean}'")
+        
+        self._log(f"Found {len(items)} businesses", "success")
+        
+        return {'items': items}
     
-    def _get_location_code(self, location_name):
-        """Ottiene location_code da nome città"""
+    def _clean_query(self, query):
+        """Pulisce query"""
+        legal_forms = [
+            'srl', 's.r.l.', 'spa', 's.p.a.', 'snc', 's.n.c.',
+            'unipersonale', 'società', 'azienda', 'impresa'
+        ]
         
-        # Check cache
-        if location_name in self._location_cache:
-            return self._location_cache[location_name]
+        query_lower = query.lower()
+        for form in legal_forms:
+            query_lower = re.sub(rf'\b{form}\b', '', query_lower, flags=re.IGNORECASE)
         
-        try:
-            # Chiamata API per ottenere location
-            url = f"{self.base_url}/business_data/google/locations"
-            headers = {
-                'Authorization': f'Basic {self._get_auth_token()}'
-            }
-            
-            params = {'location_name': location_name}
-            
-            response = requests.get(url, headers=headers, params=params, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if data.get('status_code') == 20000:
-                tasks = data.get('tasks', [])
-                if tasks and tasks[0].get('result'):
-                    locations = tasks[0]['result']
-                    if locations:
-                        # Prendi il primo risultato
-                        location_code = locations[0].get('location_code')
-                        
-                        # Salva in cache
-                        self._location_cache[location_name] = location_code
-                        
-                        return location_code
+        query_clean = re.sub(r'[^\w\s]', ' ', query_lower)
+        query_clean = re.sub(r'\s+', ' ', query_clean).strip()
         
-        except Exception as e:
-            st.warning(f"⚠️ Errore ricerca location: {e}")
-        
-        return None
-    
-    def _pulisci_query(self, query):
-        """Pulisce query da forme giuridiche"""
-        forme = ['srl', 's.r.l.', 'spa', 'snc', 'unipersonale', '-', 'società']
-        for forma in forme:
-            query = re.sub(rf'\b{forma}\b', '', query, flags=re.IGNORECASE)
-        return re.sub(r'\s+', ' ', query).strip()
+        return query_clean
     
     def get_reviews(self, place_id, limit=100):
-        """Estrae recensioni da Google Maps"""
+        """Estrae recensioni"""
+        
+        self._log(f"=== REVIEWS EXTRACTION START ===")
+        self._log(f"Place ID: {place_id}")
+        self._log(f"Limit: {limit}")
+        
+        # Crea task
         endpoint = "business_data/google/reviews/task_post"
         
         payload = [{
@@ -248,118 +315,41 @@ class DataForSEOClient:
         
         result = self._make_request(endpoint, payload)
         
-        if result.get('status_code') != 20000:
-            raise Exception(f"Errore creazione task: {result.get('status_message')}")
-        
         tasks = result.get('tasks', [])
         if not tasks:
-            raise Exception("Nessun task creato")
+            raise Exception("No task created for reviews")
         
         task_id = tasks[0].get('id')
+        self._log(f"Task ID: {task_id}")
         
-        # Attendi completamento (max 30 secondi)
-        for i in range(30):
+        # Attendi completamento
+        self._log("Waiting for task completion...")
+        
+        for attempt in range(30):
             time.sleep(1)
             
             check_endpoint = f"business_data/google/reviews/task_get/{task_id}"
-            check_result = self._make_request(check_endpoint, [])
             
-            if check_result.get('status_code') == 20000:
+            try:
+                check_result = self._make_request(check_endpoint, [])
+                
                 check_tasks = check_result.get('tasks', [])
-                if check_tasks and check_tasks[0].get('result'):
-                    return check_tasks[0]['result'][0]
-        
-        raise Exception("Timeout durante l'estrazione delle recensioni")
-    
-    def _make_request(self, endpoint, data):
-        """Effettua richiesta POST"""
-        url = f"{self.base_url}/{endpoint}"
-        
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': f'Basic {self._get_auth_token()}'
-        }
-        
-        try:
-            response = requests.post(
-                url,
-                headers=headers,
-                json=data,
-                timeout=30
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Errore API DataForSEO: {str(e)}")
-    
-    def _get_auth_token(self):
-        """Genera token Basic Auth"""
-        import base64
-        credentials = f"{self.username}:{self.password}"
-        return base64.b64encode(credentials.encode()).decode()
-    
-    def search_business(self, query, location):
-        """Cerca un'attività su Google Maps"""
-        endpoint = "business_data/google/my_business_info/live"
-        
-        # Prepara la richiesta
-        payload = [{
-            "location_name": location,
-            "keyword": query,
-            "language_code": "it"
-        }]
-        
-        result = self._make_request(endpoint, payload)
-        
-        if result.get('status_code') == 20000:
-            tasks = result.get('tasks', [])
-            if tasks and tasks[0].get('result'):
-                return tasks[0]['result']
-        
-        return None
-    
-    def get_reviews(self, place_id, limit=100):
-        """Estrae recensioni di un'attività"""
-        endpoint = "business_data/google/reviews/task_post"
-        
-        # Crea task per estrarre recensioni
-        payload = [{
-            "place_id": place_id,
-            "language_code": "it",
-            "depth": min(limit, 500),  # Max 500 per richiesta
-            "sort_by": "newest"
-        }]
-        
-        # Invia task
-        result = self._make_request(endpoint, payload)
-        
-        if result.get('status_code') != 20000:
-            raise Exception(f"Errore creazione task: {result.get('status_message')}")
-        
-        # Ottieni task_id
-        tasks = result.get('tasks', [])
-        if not tasks:
-            raise Exception("Nessun task creato")
-        
-        task_id = tasks[0].get('id')
-        
-        # Attendi completamento task (max 30 secondi)
-        for _ in range(30):
-            time.sleep(1)
+                if check_tasks:
+                    task_status = check_tasks[0]
+                    
+                    if task_status.get('status_code') == 20000:
+                        if task_status.get('result'):
+                            self._log(f"Reviews extracted (attempt {attempt+1})", "success")
+                            return task_status['result'][0]
+                
+                self._log(f"Attempt {attempt+1}/30...")
             
-            # Controlla stato task
-            check_endpoint = f"business_data/google/reviews/task_get/{task_id}"
-            check_result = self._make_request(check_endpoint, [])
-            
-            if check_result.get('status_code') == 20000:
-                check_tasks = check_result.get('tasks', [])
-                if check_tasks and check_tasks[0].get('result'):
-                    return check_tasks[0]['result']
+            except Exception as e:
+                self._log(f"Check error: {e}", "warning")
         
-        raise Exception("Timeout durante l'estrazione delle recensioni")
+        raise Exception("Timeout: reviews not available after 30 seconds")
 
-# 🔧 FUNZIONI BACKEND
-
+# 🔧 FUNZIONI PROCESSING
 @st.cache_data
 def get_stopwords():
     return set([
@@ -369,129 +359,77 @@ def get_stopwords():
         "questi", "queste", "quello", "quella", "quelli", "quelle", "sono", "è", "ho", 
         "hai", "ha", "hanno", "essere", "avere", "fare", "dire", "andare", "del", "della",
         "dei", "delle", "dal", "dalla", "dai", "dalle", "nel", "nella", "nei", "nelle",
-        "sul", "sulla", "sui", "sulle", "al", "alla", "ai", "alle", "ho", "ottimo",
+        "sul", "sulla", "sui", "sulle", "al", "alla", "ai", "alle", "ottimo",
         "buono", "buona", "bene", "male", "servizio", "prodotto", "azienda", "sempre",
-        "google", "maps", "recensione", "recensioni", "stelle", "mese", "mesi", "anno",
-        "settimana", "giorno", "giorni", "fa", "ago"
+        "google", "maps", "recensione", "recensioni", "stelle", "mese", "anno"
     ])
 
 def pulisci_testo(testo):
-    """Pulizia avanzata del testo per Google Reviews"""
+    """Pulizia testo"""
     if not testo:
         return ""
     
-    stopwords_italiane = get_stopwords()
+    stopwords = get_stopwords()
     testo = str(testo).lower()
     
-    # Rimozione date e riferimenti temporali
     testo = re.sub(r'\d{1,2}\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}', '', testo)
-    testo = re.sub(r'(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+\d{4}', '', testo)
-    testo = re.sub(r'\d{1,2}/\d{1,2}/\d{2,4}', '', testo)
-    
-    # Rimozione riferimenti temporali comuni
     testo = re.sub(r'\d+\s+(giorn[oi]|settiman[ae]|mes[ie]|ann[oi])\s+fa', '', testo)
-    testo = re.sub(r'(ieri|oggi|domani)', '', testo)
-    
-    # Rimozione stelle e rating
     testo = re.sub(r'[1-5]\s*stelle?', '', testo)
-    testo = re.sub(r'rating:?\s*\d', '', testo)
-    
-    # Pulizia generale
     testo = re.sub(r'[^\w\s]', ' ', testo)
     testo = re.sub(r'\d+', '', testo)
     testo = re.sub(r'\s+', ' ', testo)
     
     parole = testo.split()
-    parole_filtrate = [parola for parola in parole if parola not in stopwords_italiane and len(parola) > 2]
+    parole_filtrate = [p for p in parole if p not in stopwords and len(p) > 2]
     return " ".join(parole_filtrate)
 
-def cerca_attivita_google(client, nome_attivita, location, progress_bar, status_text):
-    """Cerca l'attività su Google Maps tramite DataForSEO"""
-    status_text.text(f"🔍 Ricerca attività: {nome_attivita}...")
-    progress_bar.progress(0.1)
+def processa_recensioni_dataforseo(items_api):
+    """Converte formato API in formato interno"""
+    recensioni = []
     
-    try:
-        # Chiamata API per cercare l'attività
-        result = client.search_business(nome_attivita, location)
-        progress_bar.progress(0.5)
+    for item in items_api:
+        review_text = item.get('review_text') or item.get('text') or item.get('snippet', '')
         
-        if not result or not result.get('items'):
-            return None, "Nessuna attività trovata con questi criteri"
+        if not review_text:
+            continue
         
-        # Prendi il primo risultato (più rilevante)
-        business = result['items'][0]
-        progress_bar.progress(1.0)
+        rating_obj = item.get('rating', {})
+        if isinstance(rating_obj, dict):
+            rating = rating_obj.get('value', 0)
+        else:
+            rating = rating_obj or 0
         
-        return business, None
+        timestamp = item.get('timestamp')
+        review_date = None
+        if timestamp:
+            try:
+                review_date = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+            except:
+                pass
         
-    except Exception as e:
-        return None, f"Errore durante la ricerca: {str(e)}"
-
-def estrai_recensioni_google(client, place_id, max_reviews, progress_bar, status_text):
-    """Estrae recensioni da Google Maps tramite DataForSEO"""
-    recensioni_data = []
+        owner_response = None
+        responses = item.get('responses', [])
+        if responses:
+            owner_response = responses[0].get('text', '')
+        
+        recensione = {
+            'testo': review_text,
+            'testo_pulito': pulisci_testo(review_text),
+            'rating': int(rating) if rating else 0,
+            'data': review_date,
+            'autore': item.get('author_name') or item.get('author', 'Anonimo'),
+            'risposta_owner': owner_response,
+            'ha_foto': bool(item.get('images')),
+            'link': item.get('url', '#'),
+            'review_id': item.get('review_id', '')
+        }
+        
+        recensioni.append(recensione)
     
-    try:
-        status_text.text(f"📥 Estrazione recensioni in corso...")
-        progress_bar.progress(0.1)
-        
-        # Chiamata API per ottenere recensioni
-        result = client.get_reviews(place_id, max_reviews)
-        progress_bar.progress(0.5)
-        
-        if not result or not result.get('items'):
-            return [], "Nessuna recensione trovata per questa attività"
-        
-        # Processa le recensioni
-        for item in result['items'][:max_reviews]:
-            # Estrai dati recensione
-            review_text = item.get('review_text', '')
-            if not review_text:
-                continue
-            
-            # Estrai risposta owner se presente
-            owner_response = None
-            if item.get('responses'):
-                responses = item['responses']
-                if responses and len(responses) > 0:
-                    owner_response = responses[0].get('text', '')
-            
-            # Estrai data
-            review_date = None
-            if item.get('timestamp'):
-                try:
-                    review_date = datetime.fromtimestamp(item['timestamp']).strftime("%Y-%m-%d")
-                except:
-                    review_date = None
-            
-            # Estrai rating
-            rating = item.get('rating', {}).get('value', 0)
-            
-            # Verifica presenza foto
-            has_images = bool(item.get('images'))
-            
-            recensione = {
-                'testo': review_text,
-                'testo_pulito': pulisci_testo(review_text),
-                'rating': rating,
-                'data': review_date,
-                'autore': item.get('author_name', 'Anonimo'),
-                'risposta_owner': owner_response,
-                'ha_foto': has_images,
-                'link': item.get('url', f"https://maps.google.com/?cid={place_id}"),
-                'review_id': item.get('review_id', '')
-            }
-            
-            recensioni_data.append(recensione)
-        
-        progress_bar.progress(1.0)
-        return recensioni_data, None
-        
-    except Exception as e:
-        return [], f"Errore durante l'estrazione: {str(e)}"
+    return recensioni
 
 def clusterizza_recensioni(recensioni_data, n_clusters=None):
-    """Clusterizza le recensioni per tematiche"""
+    """Clustering recensioni"""
     if len(recensioni_data) < 5:
         return recensioni_data, []
     
@@ -515,7 +453,6 @@ def clusterizza_recensioni(recensioni_data, n_clusters=None):
     if n_clusters is None:
         n_clusters = min(8, max(3, len(recensioni_data) // 10))
     
-    # Assicurati che n_clusters non superi il numero di campioni
     n_clusters = min(n_clusters, len(testi))
     
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
@@ -529,24 +466,13 @@ def clusterizza_recensioni(recensioni_data, n_clusters=None):
     
     feature_names = vectorizer.get_feature_names_out()
     cluster_topics = []
-    recensioni_usate = set()
     
     for i in range(n_clusters):
         cluster_center = kmeans.cluster_centers_[i]
         top_indices = cluster_center.argsort()[-10:][::-1]
-        top_words = [feature_names[idx] for idx in top_indices]
-        top_words = [w for w in top_words if len(w) > 3 and not w.isdigit()]
+        top_words = [feature_names[idx] for idx in top_indices if len(feature_names[idx]) > 3]
         
         cluster_reviews = [r for r in recensioni_data if r.get('cluster') == i]
-        
-        esempi_cluster = []
-        for rec in cluster_reviews:
-            rec_id = f"{rec.get('autore', '')}_{rec.get('data', '')}"
-            if rec_id not in recensioni_usate:
-                esempi_cluster.append(rec)
-                recensioni_usate.add(rec_id)
-                if len(esempi_cluster) >= 3:
-                    break
         
         if cluster_reviews:
             cluster_info = {
@@ -555,7 +481,7 @@ def clusterizza_recensioni(recensioni_data, n_clusters=None):
                 'n_recensioni': len(cluster_reviews),
                 'percentuale': (len(cluster_reviews) / len(recensioni_data)) * 100,
                 'rating_medio': np.mean([r['rating'] for r in cluster_reviews if r.get('rating')]),
-                'recensioni': esempi_cluster
+                'recensioni': cluster_reviews[:3]
             }
             cluster_topics.append(cluster_info)
     
@@ -564,7 +490,7 @@ def clusterizza_recensioni(recensioni_data, n_clusters=None):
     return recensioni_data, cluster_topics
 
 def analizza_risposte_owner(recensioni_data):
-    """Analizza le risposte del proprietario"""
+    """Analizza risposte owner"""
     recensioni_con_risposta = [r for r in recensioni_data if r.get('risposta_owner')]
     
     if not recensioni_data:
@@ -572,7 +498,6 @@ def analizza_risposte_owner(recensioni_data):
     
     tasso_risposta = (len(recensioni_con_risposta) / len(recensioni_data)) * 100
     
-    # Analizza per rating
     risposte_per_rating = {}
     for rating in range(1, 6):
         recensioni_rating = [r for r in recensioni_data if r.get('rating') == rating]
@@ -592,7 +517,7 @@ def analizza_risposte_owner(recensioni_data):
     }
 
 def analizza_trend_temporale(recensioni_data):
-    """Analizza l'andamento temporale delle recensioni"""
+    """Analizza trend temporale"""
     if not recensioni_data:
         return {}
     
@@ -623,38 +548,35 @@ def analizza_trend_temporale(recensioni_data):
     for mese in trend_mensile:
         trend_mensile[mese]['rating_medio'] = trend_mensile[mese]['rating_sum'] / trend_mensile[mese]['count']
     
-    trend_ordinato = dict(sorted(trend_mensile.items()))
-    
-    return trend_ordinato
+    return dict(sorted(trend_mensile.items()))
 
 def analizza_frequenza_temi(risultati, recensioni_data):
-    """Analizza la frequenza dei temi identificati nelle recensioni"""
+    """Analizza frequenza temi"""
     frequenze = {
         'punti_forza': {},
         'punti_debolezza': {}
     }
     
-    # Calcola frequenze per punti di forza
     for punto in risultati.get('punti_forza', []):
         count = 0
         esempi = []
-        recensioni_ids_usate = set()
+        ids_usati = set()
         
-        parole_punto = [p for p in punto.lower().split() if len(p) > 3][:3]
+        parole = [p for p in punto.lower().split() if len(p) > 3][:3]
         
         for rec in recensioni_data:
             if rec.get('rating') and rec['rating'] >= 4:
                 rec_id = f"{rec.get('autore', '')}_{rec.get('data', '')}"
                 
-                if rec_id not in recensioni_ids_usate:
+                if rec_id not in ids_usati:
                     testo_lower = rec.get('testo_pulito', '').lower()
-                    matches = sum(1 for parola in parole_punto if parola in testo_lower)
+                    matches = sum(1 for p in parole if p in testo_lower)
                     
-                    if matches >= min(2, len(parole_punto)):
+                    if matches >= min(2, len(parole)):
                         count += 1
-                        recensioni_ids_usate.add(rec_id)
+                        ids_usati.add(rec_id)
                         
-                        if len(esempi) < 2 and any(parola in testo_lower for parola in parole_punto):
+                        if len(esempi) < 2:
                             esempi.append(rec)
         
         if count > 0:
@@ -665,27 +587,26 @@ def analizza_frequenza_temi(risultati, recensioni_data):
                 'esempi': esempi
             }
     
-    # Calcola frequenze per punti di debolezza
     for punto in risultati.get('punti_debolezza', []):
         count = 0
         esempi = []
-        recensioni_ids_usate = set()
+        ids_usati = set()
         
-        parole_punto = [p for p in punto.lower().split() if len(p) > 3][:3]
+        parole = [p for p in punto.lower().split() if len(p) > 3][:3]
         
         for rec in recensioni_data:
             if rec.get('rating') and rec['rating'] <= 2:
                 rec_id = f"{rec.get('autore', '')}_{rec.get('data', '')}"
                 
-                if rec_id not in recensioni_ids_usate:
+                if rec_id not in ids_usati:
                     testo_lower = rec.get('testo_pulito', '').lower()
-                    matches = sum(1 for parola in parole_punto if parola in testo_lower)
+                    matches = sum(1 for p in parole if p in testo_lower)
                     
-                    if matches >= min(2, len(parole_punto)):
+                    if matches >= min(2, len(parole)):
                         count += 1
-                        recensioni_ids_usate.add(rec_id)
+                        ids_usati.add(rec_id)
                         
-                        if len(esempi) < 2 and any(parola in testo_lower for parola in parole_punto):
+                        if len(esempi) < 2:
                             esempi.append(rec)
         
         if count > 0:
@@ -703,8 +624,8 @@ def analizza_frequenza_temi(risultati, recensioni_data):
     
     return frequenze
 
-def analizza_blocchi_avanzata_con_sentiment(blocchi, client, progress_bar, status_text):
-    """Analisi AI con sentiment analysis per Google Reviews"""
+def analizza_blocchi_con_ai(blocchi, client, progress_bar, status_text):
+    """Analisi AI"""
     risultati = {
         "punti_forza": [],
         "punti_debolezza": [],
@@ -719,41 +640,33 @@ def analizza_blocchi_avanzata_con_sentiment(blocchi, client, progress_bar, statu
     }
 
     for i, blocco in enumerate(blocchi):
-        status_text.text(f"🤖 Analizzando blocco {i+1}/{len(blocchi)} con AI...")
+        status_text.text(f"🤖 Analisi AI blocco {i+1}/{len(blocchi)}...")
 
         prompt = f"""
-        Analizza le seguenti recensioni Google di un'attività locale e fornisci insights strategici dettagliati:
+        Analizza queste recensioni Google di un'attività locale:
 
-        RECENSIONI GOOGLE:
         {blocco}
 
-        Rispondi SOLO in formato JSON valido con queste chiavi:
+        Rispondi SOLO in formato JSON valido:
         {{
-            "punti_forza": ["punto specifico 1", "punto specifico 2", ...],
-            "punti_debolezza": ["problema specifico 1", "problema specifico 2", ...],
-            "leve_marketing": ["leva concreta 1", "leva concreta 2", ...],
-            "parole_chiave": ["termine rilevante 1", "termine rilevante 2", ...],
-            "suggerimenti_local_seo": ["suggerimento Local SEO 1", "suggerimento Local SEO 2", ...],
-            "suggerimenti_reputation": ["strategia reputation management 1", "strategia 2", ...],
-            "suggerimenti_google_ads": ["strategia Google Ads locale 1", "strategia 2", ...],
-            "suggerimenti_cro": ["ottimizzazione scheda GMB 1", "ottimizzazione 2", ...],
-            "suggerimenti_risposte": ["template risposta situazione 1", "template 2", ...],
+            "punti_forza": ["punto 1", "punto 2", ...],
+            "punti_debolezza": ["problema 1", "problema 2", ...],
+            "leve_marketing": ["leva 1", "leva 2", ...],
+            "parole_chiave": ["keyword 1", "keyword 2", ...],
+            "suggerimenti_local_seo": ["seo 1", "seo 2", ...],
+            "suggerimenti_reputation": ["reputation 1", ...],
+            "suggerimenti_google_ads": ["ads 1", ...],
+            "suggerimenti_cro": ["cro 1", ...],
+            "suggerimenti_risposte": ["template 1", ...],
             "sentiment_counts": {{"positivo": N, "neutro": N, "negativo": N}}
         }}
 
-        LINEE GUIDA SPECIFICHE PER GOOGLE REVIEWS:
-        - Estrai punti MOLTO SPECIFICI legati all'esperienza locale (location, parcheggio, orari, etc.)
-        - I punti di forza devono essere elementi concreti lodati dai clienti
-        - I punti di debolezza devono essere problemi specifici
-        - Local SEO: ottimizzazioni specifiche per ricerca locale e Google Maps
-        - Reputation: strategie per gestire recensioni negative e aumentare quelle positive
-        - Google Ads: campagne local per aumentare visite e conversioni
-        - CRO: ottimizzazioni della scheda Google My Business
-        - Risposte: template per rispondere a diverse tipologie di recensioni
-        - IGNORA date, mesi, giorni, riferimenti temporali
-        - Conta il sentiment delle recensioni
-
-        Fornisci suggerimenti PRATICI, SPECIFICI e IMPLEMENTABILI per business locali.
+        LINEE GUIDA:
+        - Punti SPECIFICI, non generici
+        - Local SEO per ricerca locale
+        - Reputation management pratico
+        - Template risposte situazionali
+        - Ignora date e riferimenti temporali
         """
 
         for tentativo in range(3):
@@ -777,17 +690,14 @@ def analizza_blocchi_avanzata_con_sentiment(blocchi, client, progress_bar, statu
                                 if sent_type in dati['sentiment_counts']:
                                     risultati['sentiment_distribution'][sent_type] += dati['sentiment_counts'][sent_type]
                         else:
-                            nuovi_elementi = [elem for elem in dati[chiave] if elem not in risultati[chiave]]
-                            risultati[chiave].extend(nuovi_elementi)
+                            nuovi = [elem for elem in dati[chiave] if elem not in risultati[chiave]]
+                            risultati[chiave].extend(nuovi)
 
                 break
                 
-            except json.JSONDecodeError:
+            except:
                 if tentativo < 2:
                     time.sleep(2)
-            except Exception:
-                if tentativo < 2:
-                    time.sleep(5)
 
         progress_bar.progress((i + 1) / len(blocchi))
 
@@ -795,630 +705,313 @@ def analizza_blocchi_avanzata_con_sentiment(blocchi, client, progress_bar, statu
         if chiave != 'sentiment_distribution':
             risultati[chiave] = list(dict.fromkeys(risultati[chiave]))
     
-    termini_da_escludere = ['google', 'maps', 'recensione', 'stelle', 'mese', 'anno']
-    risultati['parole_chiave'] = [
-        parola for parola in risultati['parole_chiave'] 
-        if parola.lower() not in termini_da_escludere and not any(t in parola.lower() for t in termini_da_escludere)
-    ]
-    
     return risultati
 
-def mostra_esempi_recensioni_google(tema, esempi, tipo="positivo"):
-    """Mostra esempi di recensioni Google con risposte owner"""
+def mostra_esempi_recensioni(tema, esempi, tipo="positivo"):
+    """Mostra esempi recensioni"""
     if not esempi:
         return
     
-    st.markdown(f"**Esempi di recensioni:**")
-    
-    esempi_mostrati = set()
+    st.markdown(f"**Esempi:**")
     
     for esempio in esempi[:2]:
-        esempio_id = f"{esempio.get('autore', '')}_{esempio.get('data', '')}"
+        rating_stars = "⭐" * esempio.get('rating', 3)
+        testo_breve = esempio.get('testo', '')[:200]
+        if len(esempio.get('testo', '')) > 200:
+            testo_breve += "..."
         
-        if esempio_id not in esempi_mostrati:
-            esempi_mostrati.add(esempio_id)
-            
-            rating_stars = "⭐" * esempio.get('rating', 3)
-            
-            testo_breve = esempio.get('testo', '')[:200]
-            if len(esempio.get('testo', '')) > 200:
-                testo_breve += "..."
-            
-            css_class = "positive-review" if tipo == "positivo" else "negative-review"
-            
-            risposta_html = ""
-            if esempio.get('risposta_owner'):
-                risposta_breve = esempio['risposta_owner'][:150]
-                if len(esempio['risposta_owner']) > 150:
-                    risposta_breve += "..."
-                risposta_html = f"""
-                <div class="owner-response">
-                    <strong>💬 Risposta del proprietario:</strong>
-                    <p style="margin-top: 0.5rem; margin-bottom: 0;">{risposta_breve}</p>
-                </div>
-                """
-            
-            st.markdown(f"""
-            <div class="review-example {css_class}">
-                <div style="margin-bottom: 0.5rem;">
-                    <strong>{rating_stars}</strong>
-                    <small style="color: #666;"> - {esempio.get('autore', 'Anonimo')} • {esempio.get('data', 'N/A')}</small>
-                    {' 📸' if esempio.get('ha_foto') else ''}
-                </div>
-                <div style="margin-bottom: 0.5rem; color: #333;">
-                    {testo_breve}
-                </div>
-                {risposta_html}
-                <a href="{esempio.get('link', '#')}" target="_blank" style="color: #4285F4; text-decoration: none; margin-top: 0.5rem; display: inline-block;">
-                    🔗 Vedi su Google Maps →
-                </a>
+        css_class = "positive-review" if tipo == "positivo" else "negative-review"
+        
+        risposta_html = ""
+        if esempio.get('risposta_owner'):
+            risposta_html = f"""
+            <div class="owner-response">
+                <strong>💬 Risposta:</strong>
+                <p>{esempio['risposta_owner'][:150]}...</p>
             </div>
-            """, unsafe_allow_html=True)
+            """
+        
+        st.markdown(f"""
+        <div class="review-example {css_class}">
+            <div><strong>{rating_stars}</strong> - {esempio.get('autore', 'Anonimo')} • {esempio.get('data', 'N/A')}</div>
+            <div>{testo_breve}</div>
+            {risposta_html}
+        </div>
+        """, unsafe_allow_html=True)
 
-def crea_excel_download_avanzato_google(recensioni_data, risultati, clusters, frequenze, analisi_owner, trend_temporale, business_info):
-    """Crea file Excel avanzato per Google Reviews"""
+def crea_excel_download(recensioni_data, risultati, clusters, frequenze, analisi_owner, trend, business_info):
+    """Crea Excel per download"""
     output = io.BytesIO()
     
-    # DataFrame recensioni
     df_recensioni = pd.DataFrame([{
-        'Testo Originale': r.get('testo', ''),
+        'Testo': r.get('testo', ''),
         'Rating': r.get('rating', 0),
         'Data': r.get('data', ''),
         'Autore': r.get('autore', ''),
-        'Ha Risposta Owner': 'Sì' if r.get('risposta_owner') else 'No',
-        'Risposta Owner': r.get('risposta_owner', ''),
-        'Ha Foto': 'Sì' if r.get('ha_foto') else 'No',
-        'Cluster': r.get('cluster', ''),
+        'Risposta Owner': 'Sì' if r.get('risposta_owner') else 'No',
         'Link': r.get('link', '')
     } for r in recensioni_data])
     
-    # DataFrame info business
     df_business = pd.DataFrame([business_info])
     
-    # DataFrame clusters
     df_clusters = pd.DataFrame([{
-        'Cluster ID': c['id'],
-        'Tematica': ', '.join(c['parole_chiave']),
+        'Cluster': c['id'],
+        'Tematiche': ', '.join(c['parole_chiave']),
         'N. Recensioni': c['n_recensioni'],
-        'Percentuale': f"{c['percentuale']:.1f}%",
-        'Rating Medio': f"{c['rating_medio']:.1f}" if not np.isnan(c['rating_medio']) else 'N/A'
+        'Percentuale': f"{c['percentuale']:.1f}%"
     } for c in clusters])
     
-    # DataFrame analisi risposte owner
-    if analisi_owner:
-        df_owner = pd.DataFrame([{
-            'Tasso Risposta Globale': f"{analisi_owner['tasso_risposta']:.1f}%",
-            'Numero Risposte': analisi_owner['n_risposte']
-        }])
-        
-        df_owner_per_rating = pd.DataFrame([{
-            'Rating': rating,
-            'Totali': dati['totali'],
-            'Con Risposta': dati['con_risposta'],
-            'Tasso Risposta': f"{dati['percentuale']:.1f}%"
-        } for rating, dati in analisi_owner.get('risposte_per_rating', {}).items()])
-    else:
-        df_owner = pd.DataFrame()
-        df_owner_per_rating = pd.DataFrame()
-    
-    # DataFrame trend temporale
-    if trend_temporale:
-        df_trend = pd.DataFrame([{
-            'Mese': mese,
-            'N. Recensioni': dati['count'],
-            'Rating Medio': f"{dati['rating_medio']:.1f}"
-        } for mese, dati in trend_temporale.items()])
-    else:
-        df_trend = pd.DataFrame()
-    
-    # DataFrame frequenze
     df_forza = pd.DataFrame([{
-        'Punto di Forza': punto,
-        'Frequenza': dati['count'],
-        'Percentuale': f"{dati['percentuale']:.1f}%"
-    } for punto, dati in frequenze['punti_forza'].items()])
+        'Punto Forza': p,
+        'Frequenza': d['count'],
+        'Percentuale': f"{d['percentuale']:.1f}%"
+    } for p, d in frequenze['punti_forza'].items()])
     
     df_debolezza = pd.DataFrame([{
-        'Punto di Debolezza': punto,
-        'Frequenza': dati['count'],
-        'Percentuale': f"{dati['percentuale']:.1f}%"
-    } for punto, dati in frequenze['punti_debolezza'].items()])
-    
-    # DataFrame strategie
-    df_strategie = pd.DataFrame({
-        'Canale': ['Local SEO', 'Reputation Management', 'Google Ads', 'CRO Scheda GMB', 'Template Risposte'],
-        'Suggerimenti': [
-            ' | '.join(risultati.get('suggerimenti_local_seo', [])),
-            ' | '.join(risultati.get('suggerimenti_reputation', [])),
-            ' | '.join(risultati.get('suggerimenti_google_ads', [])),
-            ' | '.join(risultati.get('suggerimenti_cro', [])),
-            ' | '.join(risultati.get('suggerimenti_risposte', []))
-        ]
-    })
+        'Punto Debolezza': p,
+        'Frequenza': d['count'],
+        'Percentuale': f"{d['percentuale']:.1f}%"
+    } for p, d in frequenze['punti_debolezza'].items()])
     
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         if not df_business.empty:
-            df_business.to_excel(writer, sheet_name='Info Business', index=False)
+            df_business.to_excel(writer, sheet_name='Business Info', index=False)
         df_recensioni.to_excel(writer, sheet_name='Recensioni', index=False)
         if not df_clusters.empty:
-            df_clusters.to_excel(writer, sheet_name='Clusters Tematici', index=False)
-        if not df_owner.empty:
-            df_owner.to_excel(writer, sheet_name='Analisi Risposte Owner', index=False)
-        if not df_owner_per_rating.empty:
-            df_owner_per_rating.to_excel(writer, sheet_name='Risposte per Rating', index=False)
-        if not df_trend.empty:
-            df_trend.to_excel(writer, sheet_name='Trend Temporale', index=False)
+            df_clusters.to_excel(writer, sheet_name='Clusters', index=False)
         if not df_forza.empty:
-            df_forza.to_excel(writer, sheet_name='Punti Forza Frequenza', index=False)
+            df_forza.to_excel(writer, sheet_name='Punti Forza', index=False)
         if not df_debolezza.empty:
-            df_debolezza.to_excel(writer, sheet_name='Punti Debolezza Frequenza', index=False)
-        df_strategie.to_excel(writer, sheet_name='Strategie Digital', index=False)
+            df_debolezza.to_excel(writer, sheet_name='Punti Debolezza', index=False)
     
     return output.getvalue()
 
-# 🎮 INTERFACCIA PRINCIPALE
+# 🎮 MAIN APP
 def main():
-    # SIDEBAR PER INPUT
     with st.sidebar:
         st.markdown("## 🔧 Configurazione")
         
-        # API Keys
         st.markdown("### 🔑 API Keys")
-        api_key_openai = st.text_input(
-            "OpenAI API Key",
-            type="password",
-            help="Inserisci la tua API Key di OpenAI"
-        )
-        
-        dataforseo_username = st.text_input(
-            "DataForSEO Username",
-            help="Username o email del tuo account DataForSEO"
-        )
-        
-        dataforseo_password = st.text_input(
-            "DataForSEO Password",
-            type="password",
-            help="Password del tuo account DataForSEO"
-        )
+        api_key_openai = st.text_input("OpenAI API Key", type="password")
+        dataforseo_username = st.text_input("DataForSEO Username")
+        dataforseo_password = st.text_input("DataForSEO Password", type="password")
         
         st.markdown("---")
-        
-        # Dati attività
         st.markdown("### 🏢 Dati Attività")
         
         nome_attivita = st.text_input(
-            "🏪 Nome Attività",
-            placeholder="Es: Ristorante Da Mario",
-            help="Nome esatto dell'attività su Google Maps"
+            "Nome Attività",
+            placeholder="Es: Moca Interactive",
+            help="Inserisci solo il nome, senza SRL o altre forme giuridiche"
         )
         
         location = st.text_input(
-            "📍 Città/Indirizzo",
-            placeholder="Es: Milano, Italia",
-            help="Città o indirizzo dell'attività"
+            "Città",
+            placeholder="Es: Treviso",
+            help="Inserisci solo la città, senza indirizzo completo"
         )
         
-        # Numero recensioni
-        max_reviews = st.slider(
-            "📝 Numero recensioni target",
-            min_value=50,
-            max_value=500,
-            value=100,
-            step=50,
-            help="Più recensioni = analisi più accurata"
-        )
-        
-        # Numero clusters
-        n_clusters = st.slider(
-            "🎯 Numero di cluster tematici",
-            min_value=3,
-            max_value=15,
-            value=8,
-            help="Numero di tematiche in cui raggruppare le recensioni"
-        )
+        max_reviews = st.slider("Recensioni target", 50, 500, 100, 50)
+        n_clusters = st.slider("Cluster tematici", 3, 15, 8)
         
         st.markdown("---")
-        st.markdown("### 💡 Suggerimenti")
-        st.info(
-            "• Inizia con 50-100 recensioni\n"
-            "• 6-10 cluster sono ideali\n"
-            "• Il nome deve corrispondere a Google Maps\n"
-            "• Tempo stimato: 3-8 minuti"
-        )
-
-    # AREA PRINCIPALE
+        debug_mode = st.checkbox("🐛 Debug Mode", value=True)
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
         st.markdown("## 🚀 Inizia l'Analisi")
         
-        if st.button("🔍 Avvia Analisi Google Reviews", type="primary", use_container_width=True):
-            # Validazione input
-            if not api_key_openai:
-                st.error("❌ Inserisci la tua OpenAI API Key")
+        if st.button("🔍 Avvia Analisi Completa", type="primary", use_container_width=True):
+            
+            if not all([api_key_openai, dataforseo_username, dataforseo_password, nome_attivita, location]):
+                st.error("❌ Compila tutti i campi")
                 return
             
-            if not dataforseo_username or not dataforseo_password:
-                st.error("❌ Inserisci le credenziali DataForSEO")
-                return
-            
-            if not nome_attivita:
-                st.error("❌ Inserisci il nome dell'attività")
-                return
-            
-            if not location:
-                st.error("❌ Inserisci la città/indirizzo")
-                return
-            
-            # Inizializza clients
             try:
                 client_openai = OpenAI(api_key=api_key_openai)
-                client_dataforseo = DataForSEOClient(dataforseo_username, dataforseo_password)
-            except Exception as e:
-                st.error(f"❌ Errore inizializzazione: {e}")
-                return
-            
-            # Container per risultati
-            results_container = st.container()
-            
-            with results_container:
-                # FASE 1: Ricerca Attività
-                st.markdown("### 🔍 Fase 1: Ricerca Attività su Google Maps")
-                progress_bar_1 = st.progress(0)
-                status_text_1 = st.empty()
+                client_dataforseo = DataForSEOClient(dataforseo_username, dataforseo_password, debug=debug_mode)
                 
-                business_info, error = cerca_attivita_google(
-                    client_dataforseo,
-                    nome_attivita,
-                    location,
-                    progress_bar_1,
-                    status_text_1
-                )
+                # FASE 1: Ricerca
+                st.markdown("### 🔍 Fase 1: Ricerca Attività")
+                business_result = client_dataforseo.search_business(nome_attivita, location)
                 
-                if error:
-                    st.error(f"❌ {error}")
-                    return
-                
-                if not business_info:
+                if not business_result or not business_result.get('items'):
                     st.error("❌ Attività non trovata")
                     return
                 
-                # Estrai info business
-                place_id = business_info.get('place_id', '')
-                business_data = {
+                business = business_result['items'][0]
+                place_id = business.get('place_id') or business.get('cid', '')
+                
+                business_info = {
                     'place_id': place_id,
-                    'nome': business_info.get('title', nome_attivita),
-                    'indirizzo': business_info.get('address', location),
-                    'rating_medio': business_info.get('rating', {}).get('value', 0),
-                    'n_recensioni': business_info.get('rating', {}).get('votes_count', 0),
-                    'categoria': business_info.get('category', 'N/A'),
-                    'telefono': business_info.get('phone', 'N/A'),
-                    'sito_web': business_info.get('url', 'N/A')
+                    'nome': business.get('title', nome_attivita),
+                    'indirizzo': business.get('address', location),
+                    'rating_medio': business.get('rating', {}).get('value', 0) if isinstance(business.get('rating'), dict) else business.get('rating', 0),
+                    'n_recensioni': business.get('rating', {}).get('votes_count', 0) if isinstance(business.get('rating'), dict) else business.get('reviews_count', 0),
+                    'categoria': business.get('category', 'N/A')
                 }
                 
-                status_text_1.text("✅ Attività trovata!")
-                
-                # Mostra card business
                 st.markdown(f"""
                 <div class="business-card">
-                    <h3>🏢 {business_data['nome']}</h3>
-                    <p><strong>📍 Indirizzo:</strong> {business_data['indirizzo']}</p>
-                    <p><strong>⭐ Rating:</strong> {business_data['rating_medio']}/5 ({business_data['n_recensioni']} recensioni)</p>
-                    <p><strong>🏷️ Categoria:</strong> {business_data['categoria']}</p>
+                    <h3>🏢 {business_info['nome']}</h3>
+                    <p>📍 {business_info['indirizzo']}</p>
+                    <p>⭐ {business_info['rating_medio']}/5 ({business_info['n_recensioni']} recensioni)</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # FASE 2: Estrazione Recensioni
+                # FASE 2: Recensioni
                 st.markdown("### 📥 Fase 2: Estrazione Recensioni")
-                progress_bar_2 = st.progress(0)
-                status_text_2 = st.empty()
+                reviews_result = client_dataforseo.get_reviews(place_id, max_reviews)
                 
-                recensioni_data, error = estrai_recensioni_google(
-                    client_dataforseo,
-                    place_id,
-                    max_reviews,
-                    progress_bar_2,
-                    status_text_2
-                )
-                
-                if error:
-                    st.error(f"❌ {error}")
+                if not reviews_result or not reviews_result.get('items'):
+                    st.error("❌ Nessuna recensione")
                     return
                 
-                if not recensioni_data:
-                    st.error("❌ Nessuna recensione estratta")
-                    return
+                recensioni_data = processa_recensioni_dataforseo(reviews_result['items'])
                 
-                # Statistiche recensioni
-                n_con_rating = len([r for r in recensioni_data if r.get('rating')])
-                rating_medio = np.mean([r['rating'] for r in recensioni_data if r.get('rating')]) if n_con_rating > 0 else 0
+                st.success(f"✅ Estratte {len(recensioni_data)} recensioni")
+                
+                rating_medio = np.mean([r['rating'] for r in recensioni_data if r['rating']]) if recensioni_data else 0
                 n_con_risposta = len([r for r in recensioni_data if r.get('risposta_owner')])
-                tasso_risposta = (n_con_risposta / len(recensioni_data)) * 100 if recensioni_data else 0
                 
-                st.success(f"✅ Estratte {len(recensioni_data)} recensioni!")
-                
-                col_stat1, col_stat2, col_stat3 = st.columns(3)
-                with col_stat1:
-                    st.metric("⭐ Rating Medio", f"{rating_medio:.1f}")
-                with col_stat2:
-                    st.metric("💬 Con Risposta", f"{n_con_risposta}")
-                with col_stat3:
-                    st.metric("📊 Tasso Risposta", f"{tasso_risposta:.1f}%")
+                col_s1, col_s2, col_s3 = st.columns(3)
+                with col_s1:
+                    st.metric("⭐ Rating", f"{rating_medio:.1f}")
+                with col_s2:
+                    st.metric("💬 Risposte", n_con_risposta)
+                with col_s3:
+                    st.metric("📊 Tasso", f"{(n_con_risposta/len(recensioni_data)*100):.0f}%")
                 
                 # FASE 3: Clustering
-                st.markdown("### 🎨 Fase 3: Clustering Tematico")
-                with st.spinner("Clustering in corso..."):
+                st.markdown("### 🎨 Fase 3: Clustering")
+                with st.spinner("Clustering..."):
                     recensioni_data, clusters = clusterizza_recensioni(recensioni_data, n_clusters)
+                st.success(f"✅ {len(clusters)} cluster identificati")
                 
-                st.success(f"✅ Identificati {len(clusters)} cluster tematici!")
-                
-                # FASE 4: Analisi Risposte Owner
-                st.markdown("### 💬 Fase 4: Analisi Risposte Owner")
-                with st.spinner("Analisi risposte in corso..."):
+                # FASE 4: Analisi Owner
+                st.markdown("### 💬 Fase 4: Analisi Risposte")
+                with st.spinner("Analisi risposte..."):
                     analisi_owner = analizza_risposte_owner(recensioni_data)
                 
-                # FASE 5: Trend Temporale
-                st.markdown("### 📈 Fase 5: Analisi Trend Temporale")
-                with st.spinner("Analisi trend in corso..."):
+                # FASE 5: Trend
+                st.markdown("### 📈 Fase 5: Trend Temporale")
+                with st.spinner("Analisi trend..."):
                     trend_temporale = analizza_trend_temporale(recensioni_data)
                 
                 # FASE 6: Preparazione AI
-                st.markdown("### 📝 Fase 6: Preparazione Analisi AI")
+                st.markdown("### 📝 Fase 6: Preparazione AI")
                 recensioni_pulite = [r['testo_pulito'] for r in recensioni_data if r.get('testo_pulito')]
                 testo_completo = " ".join(recensioni_pulite)
                 parole = testo_completo.split()
                 blocchi = [' '.join(parole[i:i+8000]) for i in range(0, len(parole), 8000)]
-                st.info(f"📊 Creati {len(blocchi)} blocchi per l'analisi AI")
+                st.info(f"📊 {len(blocchi)} blocchi creati")
                 
                 # FASE 7: Analisi AI
-                st.markdown("### 🤖 Fase 7: Analisi AI con Sentiment")
-                progress_bar_3 = st.progress(0)
-                status_text_3 = st.empty()
+                st.markdown("### 🤖 Fase 7: Analisi AI")
+                progress_bar = st.progress(0)
+                status_text = st.empty()
                 
-                with st.spinner("Analisi AI in corso..."):
-                    risultati = analizza_blocchi_avanzata_con_sentiment(
-                        blocchi, client_openai, progress_bar_3, status_text_3
-                    )
+                with st.spinner("Analisi AI..."):
+                    risultati = analizza_blocchi_con_ai(blocchi, client_openai, progress_bar, status_text)
                 
-                # FASE 8: Analisi Frequenze
+                # FASE 8: Frequenze
                 st.markdown("### 📊 Fase 8: Analisi Frequenze")
-                with st.spinner("Analisi frequenze in corso..."):
+                with st.spinner("Calcolo frequenze..."):
                     frequenze = analizza_frequenza_temi(risultati, recensioni_data)
                 
                 st.markdown('<div class="success-box"><h3>🎉 Analisi Completata!</h3></div>', unsafe_allow_html=True)
                 
                 # RISULTATI
-                st.markdown("## 📊 Risultati Analisi Completa")
+                st.markdown("## 📊 Risultati")
                 
-                # Metriche principali
-                col_m1, col_m2, col_m3, col_m4, col_m5, col_m6 = st.columns(6)
-                
+                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
                 with col_m1:
                     st.metric("📝 Recensioni", len(recensioni_data))
                 with col_m2:
-                    st.metric("⭐ Rating", f"{rating_medio:.1f}")
-                with col_m3:
                     st.metric("💪 Forze", len(risultati.get('punti_forza', [])))
-                with col_m4:
+                with col_m3:
                     st.metric("⚠️ Criticità", len(risultati.get('punti_debolezza', [])))
-                with col_m5:
+                with col_m4:
                     st.metric("🎯 Cluster", len(clusters))
-                with col_m6:
-                    st.metric("💬 Tasso Risp.", f"{tasso_risposta:.0f}%")
                 
-                # Distribuzione sentiment
-                if risultati.get('sentiment_distribution', {}).get('positivo', 0) > 0:
-                    st.markdown("### 😊 Distribuzione Sentiment")
-                    col_s1, col_s2, col_s3 = st.columns(3)
-                    total_sentiment = sum(risultati['sentiment_distribution'].values())
-                    
-                    with col_s1:
-                        perc = (risultati['sentiment_distribution']['positivo'] / total_sentiment * 100) if total_sentiment > 0 else 0
-                        st.metric("😊 Positivo", f"{perc:.1f}%")
-                    with col_s2:
-                        perc = (risultati['sentiment_distribution']['neutro'] / total_sentiment * 100) if total_sentiment > 0 else 0
-                        st.metric("😐 Neutro", f"{perc:.1f}%")
-                    with col_s3:
-                        perc = (risultati['sentiment_distribution']['negativo'] / total_sentiment * 100) if total_sentiment > 0 else 0
-                        st.metric("😞 Negativo", f"{perc:.1f}%")
-                
-                # Tabs risultati
-                tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-                    "💪 Punti Forza",
-                    "⚠️ Criticità",
-                    "🎨 Cluster",
-                    "💬 Risposte Owner",
-                    "📈 Trend",
-                    "🎯 Leve Marketing",
-                    "📊 Strategie Digital",
-                    "🔍 Keywords"
-                ])
+                # Tabs
+                tab1, tab2, tab3 = st.tabs(["💪 Forze", "⚠️ Criticità", "🎨 Cluster"])
                 
                 with tab1:
-                    st.markdown("### 💪 Punti di Forza")
+                    st.markdown("### Punti di Forza")
                     if frequenze['punti_forza']:
                         for punto, dati in list(frequenze['punti_forza'].items())[:10]:
                             st.markdown(f"""
                             **{punto}**
-                            <span class="frequency-badge">{dati['percentuale']:.1f}% delle recensioni positive</span>
+                            <span class="frequency-badge">{dati['percentuale']:.1f}%</span>
                             """, unsafe_allow_html=True)
                             if dati['esempi']:
-                                with st.expander(f"Vedi esempi ({len(dati['esempi'])})"):
-                                    mostra_esempi_recensioni_google(punto, dati['esempi'], "positivo")
-                    else:
-                        for i, punto in enumerate(risultati.get('punti_forza', [])[:10], 1):
-                            st.markdown(f"**{i}.** {punto}")
+                                with st.expander("Vedi esempi"):
+                                    mostra_esempi_recensioni(punto, dati['esempi'], "positivo")
                 
                 with tab2:
-                    st.markdown("### ⚠️ Punti di Debolezza")
+                    st.markdown("### Punti di Debolezza")
                     if frequenze['punti_debolezza']:
                         for punto, dati in list(frequenze['punti_debolezza'].items())[:10]:
                             st.markdown(f"""
                             **{punto}**
-                            <span class="frequency-badge" style="background: #EA4335;">{dati['percentuale']:.1f}% delle recensioni negative</span>
+                            <span class="frequency-badge" style="background: #EA4335;">{dati['percentuale']:.1f}%</span>
                             """, unsafe_allow_html=True)
                             if dati['esempi']:
-                                with st.expander(f"Vedi esempi ({len(dati['esempi'])})"):
-                                    mostra_esempi_recensioni_google(punto, dati['esempi'], "negativo")
-                    else:
-                        for i, punto in enumerate(risultati.get('punti_debolezza', [])[:10], 1):
-                            st.markdown(f"**{i}.** {punto}")
+                                with st.expander("Vedi esempi"):
+                                    mostra_esempi_recensioni(punto, dati['esempi'], "negativo")
                 
                 with tab3:
-                    st.markdown("### 🎨 Cluster Tematici")
+                    st.markdown("### Cluster Tematici")
                     for cluster in clusters:
-                        with st.expander(f"Cluster {cluster['id'] + 1}: {', '.join(cluster['parole_chiave'][:3])} ({cluster['percentuale']:.1f}%)"):
-                            col_c1, col_c2 = st.columns(2)
-                            with col_c1:
-                                st.metric("Recensioni", cluster['n_recensioni'])
-                                st.metric("Rating Medio", f"{cluster['rating_medio']:.1f} ⭐")
-                            with col_c2:
-                                st.markdown("**Tematiche:**")
-                                for parola in cluster['parole_chiave']:
-                                    st.markdown(f"• {parola}")
-                            st.markdown("**Esempi:**")
-                            for rec in cluster['recensioni'][:2]:
-                                st.markdown(f"> {'⭐' * rec.get('rating', 3)} {rec.get('testo', '')[:150]}...")
-                
-                with tab4:
-                    st.markdown("### 💬 Analisi Risposte")
-                    if analisi_owner:
-                        col_o1, col_o2 = st.columns(2)
-                        with col_o1:
-                            st.metric("Tasso Risposta", f"{analisi_owner['tasso_risposta']:.1f}%")
-                        with col_o2:
-                            st.metric("Risposte Totali", analisi_owner['n_risposte'])
-                        
-                        st.markdown("#### Tasso per Rating")
-                        for rating in range(5, 0, -1):
-                            if rating in analisi_owner.get('risposte_per_rating', {}):
-                                dati = analisi_owner['risposte_per_rating'][rating]
-                                st.markdown(f"**{'⭐' * rating}** - {dati['con_risposta']}/{dati['totali']} ({dati['percentuale']:.1f}%)")
-                
-                with tab5:
-                    st.markdown("### 📈 Trend Temporale")
-                    if trend_temporale:
-                        df_trend = pd.DataFrame([
-                            {'Mese': m, 'Recensioni': d['count'], 'Rating': d['rating_medio']}
-                            for m, d in list(trend_temporale.items())[-12:]
-                        ])
-                        st.line_chart(df_trend.set_index('Mese'))
-                
-                with tab6:
-                    st.markdown("### 🎯 Leve Marketing")
-                    for i, leva in enumerate(risultati.get('leve_marketing', [])[:10], 1):
-                        st.markdown(f"**{i}.** {leva}")
-                
-                with tab7:
-                    st.markdown("### 📊 Strategie Digital")
-                    col_d1, col_d2 = st.columns(2)
-                    with col_d1:
-                        st.markdown("#### 🌐 Local SEO")
-                        for sug in risultati.get('suggerimenti_local_seo', [])[:5]:
-                            st.markdown(f"• {sug}")
-                        st.markdown("#### 📢 Google Ads")
-                        for sug in risultati.get('suggerimenti_google_ads', [])[:5]:
-                            st.markdown(f"• {sug}")
-                    with col_d2:
-                        st.markdown("#### ⭐ Reputation")
-                        for sug in risultati.get('suggerimenti_reputation', [])[:5]:
-                            st.markdown(f"• {sug}")
-                        st.markdown("#### 🔄 CRO GMB")
-                        for sug in risultati.get('suggerimenti_cro', [])[:5]:
-                            st.markdown(f"• {sug}")
-                
-                with tab8:
-                    st.markdown("### 🔍 Parole Chiave")
-                    cols = st.columns(3)
-                    for i, parola in enumerate(risultati.get('parole_chiave', [])[:15]):
-                        with cols[i % 3]:
-                            st.markdown(f"🔸 **{parola}**")
+                        with st.expander(f"Cluster {cluster['id']+1}: {', '.join(cluster['parole_chiave'][:3])}"):
+                            st.write(f"**Recensioni:** {cluster['n_recensioni']} ({cluster['percentuale']:.1f}%)")
+                            st.write(f"**Rating medio:** {cluster['rating_medio']:.1f}⭐")
                 
                 # DOWNLOAD
                 st.markdown("## 📥 Download Report")
                 
-                excel_data = crea_excel_download_avanzato_google(
-                    recensioni_data,
-                    risultati,
-                    clusters,
-                    frequenze,
-                    analisi_owner,
-                    trend_temporale,
-                    business_data
+                excel_data = crea_excel_download(
+                    recensioni_data, risultati, clusters, 
+                    frequenze, analisi_owner, trend_temporale, business_info
                 )
                 
-                col_dl1, col_dl2 = st.columns(2)
+                st.download_button(
+                    "📊 Scarica Report Excel",
+                    excel_data,
+                    f"GoogleReviews_{business_info['nome'].replace(' ', '_')}.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True
+                )
                 
-                with col_dl1:
-                    st.download_button(
-                        label="📊 Scarica Report Excel",
-                        data=excel_data,
-                        file_name=f"GoogleReviews_{business_data['nome'].replace(' ', '_')}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        type="primary",
-                        use_container_width=True
-                    )
-                
-                with col_dl2:
-                    json_report = {
-                        'business_info': business_data,
-                        'metadata': {
-                            'n_recensioni': len(recensioni_data),
-                            'rating_medio': float(rating_medio),
-                            'tasso_risposta': float(tasso_risposta)
-                        },
-                        'insights': risultati
-                    }
-                    
-                    st.download_button(
-                        label="💾 Scarica Report JSON",
-                        data=json.dumps(json_report, indent=2, ensure_ascii=False),
-                        file_name=f"GoogleReviews_{business_data['nome'].replace(' ', '_')}.json",
-                        mime="application/json",
-                        use_container_width=True
-                    )
+            except Exception as e:
+                st.error(f"❌ Errore: {str(e)}")
+                if debug_mode:
+                    st.exception(e)
     
     with col2:
-        st.markdown("## 📋 Guida Rapida")
+        st.markdown("## 📋 Guida")
         st.markdown("""
-        ### 🎯 Funzionalità:
-        - 🔍 Ricerca automatica attività
-        - 💬 Analisi risposte owner
-        - 📈 Trend temporale
-        - ⭐ Rating distribution
-        - 🎯 Local SEO insights
+        ### ✅ Setup:
+        1. API Keys (OpenAI + DataForSEO)
+        2. Nome attività (solo nome)
+        3. Città (solo città)
+        4. Attiva Debug
+        5. Avvia!
         
-        ### 🚀 Come Usare:
-        1. Inserisci API Keys
-        2. Nome attività esatto
-        3. Location precisa
-        4. Avvia analisi
-        5. Esplora risultati
-        6. Scarica report
+        ### 💡 Tips:
+        • Nome semplice senza SRL
+        • Solo città, no indirizzo
+        • Debug per dettagli
+        • Inizia con 50 recensioni
         
-        ### ⏱️ Tempo:
-        • 50 rec: ~2-3 min
-        • 100 rec: ~4-5 min
-        • 200+ rec: ~8-10 min
+        ### ⏱️ Tempi:
+        • 50 rec: ~3-4 min
+        • 100 rec: ~5-7 min
+        • 200+ rec: ~10-12 min
         """)
-        
-        st.markdown("""
-        <div class="warning-box">
-            <h4>⚡ Best Practices</h4>
-            <p>• Nome esatto da Google Maps</p>
-            <p>• Città precisa per risultati</p>
-            <p>• Analizza competitor</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    # Footer
-    st.markdown("---")
-    st.markdown("""
-    <div style='text-align: center; color: #666;'>
-        <p>Google Reviews Analyzer PRO v1.0 - Powered by DataForSEO & OpenAI</p>
-        <p>Sviluppato per Local Business Marketing</p>
-    </div>
-    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
