@@ -1,5 +1,5 @@
-# 🚀 ANALIZZATORE GOOGLE REVIEWS - VERSIONE FINALE COMPLETA
-# Con gestione intelligente location codes e fuzzy matching
+# 🚀 ANALIZZATORE GOOGLE REVIEWS - VERSIONE DEFINITIVA UNIVERSALE
+# Gestisce QUALSIASI input con strategie adattive intelligenti
 
 import streamlit as st
 import pandas as pd
@@ -138,9 +138,6 @@ LOCATION_CODES_ITALY = {
     'italy': 2380
 }
 
-# Crea lista città per autocomplete
-CITIES_LIST = sorted([city.title() for city in LOCATION_CODES_ITALY.keys() if city not in ['italia', 'italy']])
-
 # 🎯 CSS PERSONALIZZATO
 st.markdown("""
 <style>
@@ -220,53 +217,39 @@ st.markdown('<h1 class="main-header">🚀 Analizzatore Google Reviews Pro</h1>',
 
 st.markdown("""
 <div class="feature-box">
-    <h3>🎯 Funzionalità Complete</h3>
-    <p>• Ricerca automatica attività su Google Maps tramite DataForSEO</p>
-    <p>• Gestione intelligente location codes con fuzzy matching</p>
-    <p>• Estrazione recensioni con metadata completi</p>
-    <p>• Clustering tematico avanzato con Machine Learning</p>
-    <p>• Analisi AI con GPT-4 per insights strategici</p>
-    <p>• Export completo Excel multi-sheet</p>
+    <h3>🎯 Sistema Adattivo Universale</h3>
+    <p>• Riconoscimento città con ricerca API automatica</p>
+    <p>• Strategie multiple di ricerca business (6 tentativi)</p>
+    <p>• Gestione indirizzo completo e coordinate GPS</p>
+    <p>• Fallback intelligenti per ogni scenario</p>
+    <p>• Analisi AI completa con GPT-4</p>
+    <p>• Export Excel multi-sheet professionale</p>
 </div>
 """, unsafe_allow_html=True)
 
 # 🔧 HELPER FUNCTIONS
 def normalizza_nome_citta(nome_citta):
-    """Normalizza nome città con fuzzy matching"""
+    """Normalizza nome città - SOLO match esatti, NO fuzzy"""
     
     if not nome_citta:
         return None
     
     # Pulisci input
     nome_clean = nome_citta.lower().strip()
-    
-    # Rimuovi varianti comuni
     nome_clean = re.sub(r'\s+', ' ', nome_clean)
     nome_clean = nome_clean.replace("'", " ")
     nome_clean = nome_clean.replace("-", " ")
     
-    # Check diretto nel dizionario
+    # Check diretto nel dizionario (SOLO EXACT MATCH)
     if nome_clean in LOCATION_CODES_ITALY:
         return nome_clean
     
-    # Fuzzy matching con città conosciute
-    cities_lower = list(LOCATION_CODES_ITALY.keys())
-    
-    matches = get_close_matches(nome_clean, cities_lower, n=1, cutoff=0.7)
-    
-    if matches:
-        return matches[0]
-    
-    # Prova con partial match
-    for city in cities_lower:
-        if nome_clean in city or city in nome_clean:
-            return city
-    
+    # NESSUN fuzzy matching - ritorna None se non trovato
     return None
 
 # 🔧 CLASSE DATAFORSEO
 class DataForSEOClient:
-    """Client DataForSEO con gestione intelligente location"""
+    """Client DataForSEO con strategie adattive universali"""
     
     def __init__(self, username, password, debug=False):
         self.username = username
@@ -296,7 +279,7 @@ class DataForSEOClient:
             'Authorization': f'Basic {self._get_auth_token()}'
         }
         
-        self._log(f"API Call: {method} {endpoint}")
+        self._log(f"API: {method} {endpoint}")
         
         try:
             if method == "POST":
@@ -308,15 +291,12 @@ class DataForSEOClient:
             result = response.json()
             
             if result.get('status_code') == 20000:
-                self._log("API Response: OK", "success")
                 return result
             else:
                 error_msg = result.get('status_message', 'Unknown error')
-                self._log(f"API Error: {error_msg}", "error")
                 raise Exception(f"API Error: {error_msg}")
         
         except requests.exceptions.RequestException as e:
-            self._log(f"Connection Error: {str(e)}", "error")
             raise Exception(f"Connection Error: {str(e)}")
     
     def _get_auth_token(self):
@@ -325,45 +305,37 @@ class DataForSEOClient:
         return base64.b64encode(credentials.encode()).decode()
     
     def get_location_code(self, location_name):
-        """Ottiene location code con fuzzy matching e fallback API"""
+        """Ottiene location code - PRIMA database, POI API obbligatoria"""
         
-        # Check cache
         if location_name in self._location_cache:
-            self._log(f"Location code from cache: {self._location_cache[location_name]}")
             return self._location_cache[location_name]
         
-        self._log(f"Searching location code for: '{location_name}'")
+        self._log(f"🔍 Ricerca location: '{location_name}'")
         
-        # STEP 1: Normalizza nome città
+        # STEP 1: Check database (SOLO exact match)
         nome_normalizzato = normalizza_nome_citta(location_name)
         
-        if nome_normalizzato:
-            self._log(f"Normalized: '{location_name}' → '{nome_normalizzato}'", "success")
-            
-            # Check nel dizionario
-            if nome_normalizzato in LOCATION_CODES_ITALY:
-                code = LOCATION_CODES_ITALY[nome_normalizzato]
-                self._log(f"Found in database: {code}", "success")
-                self._location_cache[location_name] = code
-                return code
-        else:
-            self._log(f"Could not normalize '{location_name}'", "warning")
+        if nome_normalizzato and nome_normalizzato in LOCATION_CODES_ITALY:
+            code = LOCATION_CODES_ITALY[nome_normalizzato]
+            self._log(f"✅ Trovato in database: {nome_normalizzato.title()} (code: {code})", "success")
+            self._location_cache[location_name] = code
+            return code
         
-        # STEP 2: Ricerca API (fallback)
-        self._log("Searching via API...")
+        # STEP 2: RICERCA API OBBLIGATORIA (città non in database)
+        self._log(f"🌐 Città non in database, ricerca via API...")
         
         try:
             endpoint = "business_data/google/locations"
             
-            # Prova con ", Italia" aggiunto
+            # Strategie di ricerca API
             search_queries = [
-                f"{location_name}, Italia",
-                f"{location_name}, Italy",
-                location_name
+                location_name,  # Nome esatto
+                f"{location_name}, Italia",  # + Italia
+                f"{location_name}, Italy"  # + Italy
             ]
             
             for search_query in search_queries:
-                self._log(f"Trying: '{search_query}'")
+                self._log(f"Tentativo API: '{search_query}'")
                 
                 params = {'location_name': search_query}
                 result = self._make_request(endpoint, params, method="GET")
@@ -372,82 +344,188 @@ class DataForSEOClient:
                 if tasks and tasks[0].get('result'):
                     locations = tasks[0]['result']
                     
-                    # Filtra solo risultati italiani
-                    italian_locs = [
-                        loc for loc in locations
-                        if 'italy' in loc.get('location_name', '').lower() or
-                           'italia' in loc.get('location_name', '').lower()
-                    ]
-                    
-                    if italian_locs:
-                        location_code = italian_locs[0].get('location_code')
-                        location_full = italian_locs[0].get('location_name')
+                    if locations:
+                        # Filtra solo risultati italiani
+                        italian_locs = [
+                            loc for loc in locations
+                            if 'italy' in loc.get('location_name', '').lower() or
+                               'italia' in loc.get('location_name', '').lower()
+                        ]
                         
-                        self._log(f"Found via API: {location_full} (code: {location_code})", "success")
-                        
-                        self._location_cache[location_name] = location_code
-                        return location_code
+                        if italian_locs:
+                            location_code = italian_locs[0].get('location_code')
+                            location_full = italian_locs[0].get('location_name')
+                            
+                            self._log(f"✅ API: {location_full} (code: {location_code})", "success")
+                            
+                            self._location_cache[location_name] = location_code
+                            return location_code
         
         except Exception as e:
-            self._log(f"API search error: {e}", "warning")
+            self._log(f"⚠️ Errore API: {e}", "warning")
         
         # STEP 3: Fallback Italia
-        self._log(f"Using Italy as fallback", "warning")
+        self._log(f"⚠️ Uso Italia come fallback", "warning")
         return 2380
     
     def search_business(self, query, location):
-        """Cerca attività con gestione location intelligente"""
+        """Ricerca UNIVERSALE con 6 strategie adattive"""
         
-        self._log(f"=== BUSINESS SEARCH START ===")
-        self._log(f"Original query: '{query}'")
-        self._log(f"Original location: '{location}'")
+        self._log(f"=== RICERCA BUSINESS ===")
+        self._log(f"Query: '{query}'")
+        self._log(f"Location: '{location}'")
         
         # Pulisci query
         query_clean = self._clean_query(query)
-        self._log(f"Cleaned query: '{query_clean}'")
         
-        # Ottieni location code
-        location_code = self.get_location_code(location)
+        # Rileva tipo di location
+        is_full_address = self._is_full_address(location)
         
-        if not location_code:
-            raise Exception(f"Cannot find location code for '{location}'")
+        if is_full_address:
+            self._log("📍 Rilevato indirizzo completo")
+            return self._search_by_address(query, query_clean, location)
+        else:
+            self._log("🏙️ Rilevata città")
+            return self._search_by_city(query, query_clean, location)
+    
+    def _is_full_address(self, location):
+        """Rileva se è indirizzo completo"""
+        indicators = ['via', 'viale', 'piazza', 'corso', 'largo', 'vicolo', ',']
+        return any(ind in location.lower() for ind in indicators)
+    
+    def _search_by_address(self, query_original, query_clean, address):
+        """Ricerca con indirizzo completo (3 strategie)"""
         
-        self._log(f"Using location code: {location_code}")
-        
-        # Cerca attività
         endpoint = "business_data/google/my_business_info/live"
         
-        payload = [{
-            "keyword": query_clean,
-            "location_code": location_code,
-            "language_code": "it"
-        }]
+        strategies = [
+            # 1. Query originale + indirizzo
+            {"keyword": f"{query_original} {address}"},
+            
+            # 2. Query pulita + indirizzo
+            {"keyword": f"{query_clean} {address}"},
+            
+            # 3. Solo query con location_name
+            {"keyword": query_original, "location_name": address}
+        ]
         
-        result = self._make_request(endpoint, payload)
+        for idx, strategy in enumerate(strategies, 1):
+            self._log(f"📍 Strategia indirizzo {idx}/3: {strategy.get('keyword', '')[:50]}...")
+            
+            payload = [{
+                **strategy,
+                "language_code": "it"
+            }]
+            
+            try:
+                result = self._make_request(endpoint, payload)
+                items = self._extract_items_from_result(result)
+                
+                if items:
+                    self._log(f"✅ Trovato con strategia {idx}!", "success")
+                    return {'items': items}
+            
+            except Exception as e:
+                self._log(f"Strategia {idx} fallita: {str(e)[:50]}", "warning")
+                continue
         
-        tasks = result.get('tasks', [])
+        raise Exception(f"Nessun risultato con indirizzo '{address}'")
+    
+    def _search_by_city(self, query_original, query_clean, city):
+        """Ricerca con città (6 strategie)"""
         
-        if not tasks:
-            raise Exception("No tasks in response")
+        # Ottieni location code
+        location_code = self.get_location_code(city)
         
-        task = tasks[0]
+        if not location_code:
+            raise Exception(f"Impossibile trovare location code per '{city}'")
         
-        if task.get('status_code') != 20000:
-            error_msg = task.get('status_message', 'Unknown error')
-            raise Exception(f"Task error: {error_msg}")
+        endpoint = "business_data/google/my_business_info/live"
         
-        task_result = task.get('result')
-        if not task_result:
-            raise Exception("No result in task")
+        strategies = [
+            # 1. Query originale + città nel keyword
+            {"keyword": f"{query_original} {city}", "location_code": location_code},
+            
+            # 2. Query pulita + città nel keyword
+            {"keyword": f"{query_clean} {city}", "location_code": location_code},
+            
+            # 3. Query originale + città separata con virgola
+            {"keyword": f"{query_original}, {city}", "location_code": location_code},
+            
+            # 4. Solo query originale con location code
+            {"keyword": query_original, "location_code": location_code},
+            
+            # 5. Solo query pulita con location code
+            {"keyword": query_clean, "location_code": location_code},
+            
+            # 6. Query espansa (se troppo corta)
+            {"keyword": f"{query_original} {city} italia", "location_code": location_code}
+        ]
         
-        items = task_result[0].get('items', [])
+        # Filtra strategie duplicate
+        seen_keywords = set()
+        unique_strategies = []
+        for s in strategies:
+            kw = s.get('keyword', '')
+            if kw not in seen_keywords:
+                seen_keywords.add(kw)
+                unique_strategies.append(s)
         
-        if not items:
-            raise Exception(f"No business found for '{query_clean}' in {location}")
+        for idx, strategy in enumerate(unique_strategies, 1):
+            self._log(f"🏙️ Strategia città {idx}/{len(unique_strategies)}: '{strategy['keyword']}'")
+            
+            payload = [{
+                **strategy,
+                "language_code": "it"
+            }]
+            
+            try:
+                result = self._make_request(endpoint, payload)
+                items = self._extract_items_from_result(result)
+                
+                if items:
+                    self._log(f"✅ Trovato con strategia {idx}!", "success")
+                    return {'items': items}
+            
+            except Exception as e:
+                self._log(f"Strategia {idx}: {str(e)[:100]}", "warning")
+                continue
         
-        self._log(f"Found {len(items)} businesses", "success")
+        # Tutte le strategie fallite
+        raise Exception(
+            f"❌ Nessun risultato per '{query_original}' in {city} dopo {len(unique_strategies)} tentativi.\n\n"
+            f"💡 Suggerimenti:\n"
+            f"• Verifica che il nome sia scritto come appare su Google Maps\n"
+            f"• Prova ad aggiungere dettagli (es: tipo di attività, cognome)\n"
+            f"• Usa l'indirizzo completo invece della città"
+        )
+    
+    def _extract_items_from_result(self, result):
+        """Estrae items dal risultato API"""
+        try:
+            tasks = result.get('tasks', [])
+            if not tasks:
+                return None
+            
+            task = tasks[0]
+            
+            if task.get('status_code') != 20000:
+                error_msg = task.get('status_message', '')
+                # Se "No Search Results", ritorna None per provare strategia successiva
+                if "No Search Results" in error_msg or "no results" in error_msg.lower():
+                    return None
+                # Altri errori, solleva eccezione
+                raise Exception(error_msg)
+            
+            task_result = task.get('result')
+            if not task_result:
+                return None
+            
+            items = task_result[0].get('items', [])
+            return items if items else None
         
-        return {'items': items}
+        except Exception as e:
+            raise
     
     def _clean_query(self, query):
         """Pulisce query da forme giuridiche"""
@@ -468,9 +546,9 @@ class DataForSEOClient:
     def get_reviews(self, place_id, limit=100):
         """Estrae recensioni"""
         
-        self._log(f"=== REVIEWS EXTRACTION START ===")
+        self._log(f"=== ESTRAZIONE RECENSIONI ===")
         self._log(f"Place ID: {place_id}")
-        self._log(f"Limit: {limit}")
+        self._log(f"Limite: {limit}")
         
         endpoint = "business_data/google/reviews/task_post"
         
@@ -485,13 +563,12 @@ class DataForSEOClient:
         
         tasks = result.get('tasks', [])
         if not tasks:
-            raise Exception("No task created for reviews")
+            raise Exception("Nessun task creato")
         
         task_id = tasks[0].get('id')
         self._log(f"Task ID: {task_id}")
         
-        self._log("Waiting for task completion...")
-        
+        # Attendi completamento
         for attempt in range(30):
             time.sleep(1)
             
@@ -506,16 +583,16 @@ class DataForSEOClient:
                     
                     if task_status.get('status_code') == 20000:
                         if task_status.get('result'):
-                            self._log(f"Reviews extracted (attempt {attempt+1})", "success")
+                            self._log(f"✅ Estratte dopo {attempt+1}s", "success")
                             return task_status['result'][0]
                 
                 if self.debug and attempt % 5 == 0:
-                    self._log(f"Attempt {attempt+1}/30...")
+                    self._log(f"Tentativo {attempt+1}/30...")
             
             except Exception as e:
-                self._log(f"Check error: {e}", "warning")
+                self._log(f"Errore check: {e}", "warning")
         
-        raise Exception("Timeout: reviews not available after 30 seconds")
+        raise Exception("Timeout: recensioni non disponibili dopo 30s")
 
 # 🔧 FUNZIONI PROCESSING
 @st.cache_data
@@ -597,7 +674,7 @@ def processa_recensioni_dataforseo(items_api):
     return recensioni
 
 def clusterizza_recensioni(recensioni_data, n_clusters=None):
-    """Clustering recensioni"""
+    """Clustering"""
     if len(recensioni_data) < 5:
         return recensioni_data, []
     
@@ -658,7 +735,7 @@ def clusterizza_recensioni(recensioni_data, n_clusters=None):
     return recensioni_data, cluster_topics
 
 def analizza_risposte_owner(recensioni_data):
-    """Analizza risposte owner"""
+    """Analizza risposte"""
     recensioni_con_risposta = [r for r in recensioni_data if r.get('risposta_owner')]
     
     if not recensioni_data:
@@ -808,20 +885,20 @@ def analizza_blocchi_con_ai(blocchi, client, progress_bar, status_text):
     }
 
     for i, blocco in enumerate(blocchi):
-        status_text.text(f"🤖 Analisi AI blocco {i+1}/{len(blocchi)}...")
+        status_text.text(f"🤖 AI {i+1}/{len(blocchi)}...")
 
         prompt = f"""
-        Analizza queste recensioni Google:
+        Analizza recensioni Google:
 
         {blocco}
 
-        Rispondi SOLO in JSON:
+        Rispondi SOLO JSON:
         {{
-            "punti_forza": ["punto 1", "punto 2"],
-            "punti_debolezza": ["problema 1", "problema 2"],
-            "leve_marketing": ["leva 1", "leva 2"],
-            "parole_chiave": ["keyword 1", "keyword 2"],
-            "suggerimenti_local_seo": ["seo 1", "seo 2"],
+            "punti_forza": ["punto 1"],
+            "punti_debolezza": ["problema 1"],
+            "leve_marketing": ["leva 1"],
+            "parole_chiave": ["keyword 1"],
+            "suggerimenti_local_seo": ["seo 1"],
             "suggerimenti_reputation": ["rep 1"],
             "suggerimenti_google_ads": ["ads 1"],
             "suggerimenti_cro": ["cro 1"],
@@ -963,49 +1040,51 @@ def main():
         nome_attivita = st.text_input(
             "Nome Attività",
             placeholder="Es: Moca Interactive",
-            help="Solo il nome, senza SRL o forme giuridiche"
+            help="Nome come appare su Google Maps"
         )
         
-        # Input città con suggerimenti
-        location_input = st.text_input(
-            "Città",
-            placeholder="Es: Treviso",
-            help="Inserisci la città italiana"
+        # Warning nome corto
+        if nome_attivita and len(nome_attivita) < 5:
+            st.warning("⚠️ Nome molto corto! Aggiungi dettagli per risultati migliori")
+        
+        location = st.text_input(
+            "Città o Indirizzo",
+            placeholder="Es: Treviso  OPPURE  Via Fonderia 93, Treviso",
+            help="Città italiana o indirizzo completo"
         )
         
-        # Mostra città normalizzata
-        if location_input:
-            location_normalized = normalizza_nome_citta(location_input)
-            if location_normalized:
-                st.success(f"✅ Città riconosciuta: {location_normalized.title()}")
-                location = location_normalized
+        # Preview riconoscimento
+        if location:
+            if ',' in location or any(x in location.lower() for x in ['via', 'viale', 'piazza']):
+                st.info("📍 Rilevato: Indirizzo completo")
             else:
-                st.warning(f"⚠️ Città non riconosciuta, verrà cercata via API")
-                location = location_input
-        else:
-            location = ""
+                normalized = normalizza_nome_citta(location)
+                if normalized:
+                    st.success(f"✅ Città: {normalized.title()}")
+                else:
+                    st.info(f"🌐 Città non in database, ricerca via API")
         
-        max_reviews = st.slider("Recensioni target", 50, 500, 100, 50)
-        n_clusters = st.slider("Cluster tematici", 3, 15, 8)
-        
-        st.markdown("---")
-        debug_mode = st.checkbox("🐛 Debug Mode", value=False)
+        max_reviews = st.slider("Recensioni", 50, 500, 100, 50)
+        n_clusters = st.slider("Cluster", 3, 15, 8)
         
         st.markdown("---")
-        st.markdown("### 💡 Tips")
+        debug_mode = st.checkbox("🐛 Debug", value=False)
+        
+        st.markdown("---")
+        st.markdown("### 💡 Sistema")
         st.info("""
-        • Nome semplice (no SRL)
-        • Città italiana
-        • Fuzzy matching attivo
-        • 100+ città supportate
+        ✅ 6 strategie ricerca
+        ✅ API fallback automatico
+        ✅ Supporto indirizzo completo
+        ✅ 100+ città database
         """)
     
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        st.markdown("## 🚀 Inizia l'Analisi")
+        st.markdown("## 🚀 Avvia Analisi")
         
-        if st.button("🔍 Avvia Analisi Completa", type="primary", use_container_width=True):
+        if st.button("🔍 Analizza Recensioni", type="primary", use_container_width=True):
             
             if not all([api_key_openai, dataforseo_username, dataforseo_password, nome_attivita, location]):
                 st.error("❌ Compila tutti i campi")
@@ -1015,12 +1094,12 @@ def main():
                 client_openai = OpenAI(api_key=api_key_openai)
                 client_dataforseo = DataForSEOClient(dataforseo_username, dataforseo_password, debug=debug_mode)
                 
-                # FASE 1: Ricerca
-                st.markdown("### 🔍 Fase 1: Ricerca Attività")
+                # FASE 1
+                st.markdown("### 🔍 Ricerca Business")
                 business_result = client_dataforseo.search_business(nome_attivita, location)
                 
                 if not business_result or not business_result.get('items'):
-                    st.error("❌ Attività non trovata")
+                    st.error("❌ Nessuna attività trovata")
                     return
                 
                 business = business_result['items'][0]
@@ -1043,8 +1122,8 @@ def main():
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # FASE 2: Recensioni
-                st.markdown("### 📥 Fase 2: Estrazione Recensioni")
+                # FASE 2
+                st.markdown("### 📥 Estrazione")
                 reviews_result = client_dataforseo.get_reviews(place_id, max_reviews)
                 
                 if not reviews_result or not reviews_result.get('items'):
@@ -1053,50 +1132,50 @@ def main():
                 
                 recensioni_data = processa_recensioni_dataforseo(reviews_result['items'])
                 
-                st.success(f"✅ Estratte {len(recensioni_data)} recensioni")
+                st.success(f"✅ {len(recensioni_data)} recensioni")
                 
                 rating_medio = np.mean([r['rating'] for r in recensioni_data if r['rating']]) if recensioni_data else 0
                 n_con_risposta = len([r for r in recensioni_data if r.get('risposta_owner')])
                 
                 col_s1, col_s2, col_s3 = st.columns(3)
                 with col_s1:
-                    st.metric("⭐ Rating", f"{rating_medio:.1f}")
+                    st.metric("⭐", f"{rating_medio:.1f}")
                 with col_s2:
-                    st.metric("💬 Risposte", n_con_risposta)
+                    st.metric("💬", n_con_risposta)
                 with col_s3:
-                    st.metric("📊 Tasso", f"{(n_con_risposta/len(recensioni_data)*100):.0f}%")
+                    st.metric("📊", f"{(n_con_risposta/len(recensioni_data)*100):.0f}%")
                 
-                # FASE 3: Clustering
-                st.markdown("### 🎨 Fase 3: Clustering")
-                with st.spinner("Clustering..."):
+                # FASE 3
+                st.markdown("### 🎨 Clustering")
+                with st.spinner("..."):
                     recensioni_data, clusters = clusterizza_recensioni(recensioni_data, n_clusters)
                 st.success(f"✅ {len(clusters)} cluster")
                 
-                # FASE 4: Analisi Owner
-                st.markdown("### 💬 Fase 4: Analisi Risposte")
+                # FASE 4
+                st.markdown("### 💬 Risposte")
                 analisi_owner = analizza_risposte_owner(recensioni_data)
                 
-                # FASE 5: Trend
-                st.markdown("### 📈 Fase 5: Trend")
+                # FASE 5
+                st.markdown("### 📈 Trend")
                 trend_temporale = analizza_trend_temporale(recensioni_data)
                 
-                # FASE 6: Prep AI
-                st.markdown("### 📝 Fase 6: Prep AI")
+                # FASE 6
+                st.markdown("### 📝 Prep AI")
                 recensioni_pulite = [r['testo_pulito'] for r in recensioni_data if r.get('testo_pulito')]
                 testo_completo = " ".join(recensioni_pulite)
                 parole = testo_completo.split()
                 blocchi = [' '.join(parole[i:i+8000]) for i in range(0, len(parole), 8000)]
                 st.info(f"📊 {len(blocchi)} blocchi")
                 
-                # FASE 7: AI
-                st.markdown("### 🤖 Fase 7: AI")
+                # FASE 7
+                st.markdown("### 🤖 AI")
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
                 risultati = analizza_blocchi_con_ai(blocchi, client_openai, progress_bar, status_text)
                 
-                # FASE 8: Frequenze
-                st.markdown("### 📊 Fase 8: Frequenze")
+                # FASE 8
+                st.markdown("### 📊 Frequenze")
                 frequenze = analizza_frequenza_temi(risultati, recensioni_data)
                 
                 st.markdown('<div class="success-box"><h3>🎉 Completato!</h3></div>', unsafe_allow_html=True)
@@ -1106,13 +1185,13 @@ def main():
                 
                 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
                 with col_m1:
-                    st.metric("📝 Recensioni", len(recensioni_data))
+                    st.metric("📝", len(recensioni_data))
                 with col_m2:
-                    st.metric("💪 Forze", len(risultati.get('punti_forza', [])))
+                    st.metric("💪", len(risultati.get('punti_forza', [])))
                 with col_m3:
-                    st.metric("⚠️ Criticità", len(risultati.get('punti_debolezza', [])))
+                    st.metric("⚠️", len(risultati.get('punti_debolezza', [])))
                 with col_m4:
-                    st.metric("🎯 Cluster", len(clusters))
+                    st.metric("🎯", len(clusters))
                 
                 # Tabs
                 tab1, tab2, tab3 = st.tabs(["💪 Forze", "⚠️ Criticità", "🎨 Cluster"])
@@ -1125,7 +1204,7 @@ def main():
                             <span class="frequency-badge">{dati['percentuale']:.1f}%</span>
                             """, unsafe_allow_html=True)
                             if dati['esempi']:
-                                with st.expander("Vedi esempi"):
+                                with st.expander("Esempi"):
                                     mostra_esempi_recensioni(punto, dati['esempi'], "positivo")
                 
                 with tab2:
@@ -1136,13 +1215,13 @@ def main():
                             <span class="frequency-badge" style="background: #EA4335;">{dati['percentuale']:.1f}%</span>
                             """, unsafe_allow_html=True)
                             if dati['esempi']:
-                                with st.expander("Vedi esempi"):
+                                with st.expander("Esempi"):
                                     mostra_esempi_recensioni(punto, dati['esempi'], "negativo")
                 
                 with tab3:
                     for cluster in clusters:
                         with st.expander(f"Cluster {cluster['id']+1}: {', '.join(cluster['parole_chiave'][:3])}"):
-                            st.write(f"**Recensioni:** {cluster['n_recensioni']} ({cluster['percentuale']:.1f}%)")
+                            st.write(f"**Rec:** {cluster['n_recensioni']} ({cluster['percentuale']:.1f}%)")
                             st.write(f"**Rating:** {cluster['rating_medio']:.1f}⭐")
                 
                 # DOWNLOAD
@@ -1154,41 +1233,38 @@ def main():
                 )
                 
                 st.download_button(
-                    "📊 Scarica Report Excel",
+                    "📊 Excel Report",
                     excel_data,
-                    f"GoogleReviews_{business_info['nome'].replace(' ', '_')}.xlsx",
+                    f"Reviews_{business_info['nome'].replace(' ', '_')}.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     type="primary",
                     use_container_width=True
                 )
                 
             except Exception as e:
-                st.error(f"❌ Errore: {str(e)}")
+                st.error(f"❌ {str(e)}")
                 if debug_mode:
                     st.exception(e)
     
     with col2:
         st.markdown("## 📋 Info")
         st.markdown("""
-        ### ✅ Features:
-        • 100+ città italiane
-        • Fuzzy matching nomi
-        • Fallback API automatico
-        • Location code intelligente
-        • Clustering ML
-        • Analisi AI GPT-4
-        • Export Excel completo
+        ### ✅ Sistema Universale:
+        • 6 strategie ricerca
+        • Indirizzo completo OK
+        • API automatica città
+        • NO fuzzy match città
+        • Fallback intelligenti
         
-        ### 🌍 Città Top:
-        Roma, Milano, Napoli, Torino,
-        Venezia, Firenze, Bologna,
-        Verona, Padova, Treviso,
-        Genova, Bari, + 80 altre
+        ### 🎯 Input Ottimale:
+        **Nome:** Completo, specifico
+        **Città:** Agropoli ✅
+        **Indirizzo:** Via X, 10 ✅
         
         ### ⏱️ Tempi:
-        50 rec: ~3-4 min
-        100 rec: ~5-7 min
-        200+ rec: ~10-12 min
+        50: ~3-4min
+        100: ~5-7min
+        200+: ~10-12min
         """)
 
 if __name__ == "__main__":
