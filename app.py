@@ -388,102 +388,119 @@ class DataForSEOClient:
         return query_clean
     
     def get_reviews(self, place_id, limit=100):
-        """ESTRAZIONE RECENSIONI - FIX COMPLETO CON TASK_GET"""
+    """ESTRAZIONE RECENSIONI - FIX DEFINITIVO"""
+    
+    self._log(f"=== GET REVIEWS ===")
+    self._log(f"Place ID: {place_id}")
+    self._log(f"Limit: {limit}")
+    
+    # STEP 1: Crea task
+    endpoint_post = "business_data/google/reviews/task_post"
+    
+    payload = [{
+        "place_id": place_id,
+        "language_code": "it",
+        "depth": min(limit, 500),
+        "sort_by": "newest"
+    }]
+    
+    self._log("📤 Creating task...")
+    result = self._make_request(endpoint_post, payload, method="POST")
+    
+    tasks = result.get('tasks', [])
+    if not tasks:
+        raise Exception("No task created")
+    
+    task_id = tasks[0].get('id')
+    self._log(f"✅ Task created: {task_id}", "success")
+    
+    # STEP 2: ASPETTA PRIMA DI CONTROLLARE (importante!)
+    initial_wait = 5
+    self._log(f"⏳ Initial wait {initial_wait}s before checking...")
+    time.sleep(initial_wait)
+    
+    # STEP 3: Polling con task_get
+    self._log("🔄 Starting polling...")
+    
+    max_attempts = 60
+    wait_time = 2
+    
+    for attempt in range(max_attempts):
+        time.sleep(wait_time)
         
-        self._log(f"=== GET REVIEWS ===")
-        self._log(f"Place ID: {place_id}")
-        self._log(f"Limit: {limit}")
+        endpoint_get = f"business_data/google/reviews/task_get/{task_id}"
         
-        # STEP 1: Crea task POST
-        endpoint_post = "business_data/google/reviews/task_post"
-        
-        payload = [{
-            "place_id": place_id,
-            "language_code": "it",
-            "depth": min(limit, 500),
-            "sort_by": "newest"
-        }]
-        
-        self._log("📤 Creating task...")
-        result = self._make_request(endpoint_post, payload, method="POST")
-        
-        tasks = result.get('tasks', [])
-        if not tasks:
-            raise Exception("No task created")
-        
-        task_id = tasks[0].get('id')
-        self._log(f"✅ Task created: {task_id}", "success")
-        
-        # STEP 2: Attendi e recupera con task_get/:id
-        self._log("⏳ Waiting for task completion (20-60s)...")
-        
-        max_attempts = 60
-        wait_time = 2
-        
-        for attempt in range(max_attempts):
-            time.sleep(wait_time)
+        try:
+            get_result = self._make_request(endpoint_get, data=None, method="GET")
             
-            # USA task_get con ID specifico
-            endpoint_get = f"business_data/google/reviews/task_get/{task_id}"
-            
-            try:
-                # Richiesta GET senza payload
-                get_result = self._make_request(endpoint_get, data=None, method="GET")
+            if get_result.get('status_code') == 20000:
+                get_tasks = get_result.get('tasks', [])
                 
-                if get_result.get('status_code') == 20000:
-                    get_tasks = get_result.get('tasks', [])
+                if get_tasks:
+                    task_status = get_tasks[0]
                     
-                    if get_tasks:
-                        task_status = get_tasks[0]
+                    # Completato con successo
+                    if task_status.get('status_code') == 20000:
+                        result_data = task_status.get('result')
                         
-                        # Task completato con successo
-                        if task_status.get('status_code') == 20000:
-                            result_data = task_status.get('result')
+                        if result_data and len(result_data) > 0:
+                            items = result_data[0].get('items', [])
                             
-                            if result_data and len(result_data) > 0:
-                                items = result_data[0].get('items', [])
-                                
-                                if items:
-                                    elapsed = (attempt + 1) * wait_time
-                                    self._log(f"✅ {len(items)} reviews in {elapsed}s!", "success")
-                                    return result_data[0]
-                                else:
-                                    # Nessuna recensione trovata
-                                    self._log("⚠️ No reviews found", "warning")
-                                    return {'items': []}
+                            if items:
+                                elapsed = initial_wait + (attempt + 1) * wait_time
+                                self._log(f"✅ {len(items)} reviews in {elapsed}s!", "success")
+                                return result_data[0]
+                            else:
+                                self._log("⚠️ No reviews found", "warning")
+                                return {'items': []}
+                    
+                    # In processing (40000)
+                    elif task_status.get('status_code') == 40000:
+                        if self.debug and attempt % 10 == 0:
+                            self._log(f"⏳ Processing... ({attempt+1}/{max_attempts})")
+                        continue
+                    
+                    # Task con errore
+                    else:
+                        error_msg = task_status.get('status_message', 'Unknown error')
                         
-                        # Task in processing (40000)
-                        elif task_status.get('status_code') == 40000:
-                            if self.debug and attempt % 10 == 0:
-                                self._log(f"⏳ Processing... ({attempt+1}/{max_attempts})")
+                        # Se "Task Not Found" nei primi tentativi, continua
+                        if "Task Not Found" in error_msg and attempt < 20:
+                            if self.debug and attempt % 5 == 0:
+                                self._log(f"⏳ Task not ready yet... ({attempt+1}/20)")
                             continue
                         
-                        # Task con errore
-                        else:
-                            error_msg = task_status.get('status_message', 'Unknown error')
-                            raise Exception(f"Task error: {error_msg}")
-            
-            except Exception as e:
-                error_str = str(e)
-                
-                # Se errore task, solleva subito
-                if "Task error:" in error_str:
-                    raise
-                
-                # Altri errori (connessione), log e continua
-                if self.debug and attempt % 10 == 0:
-                    self._log(f"⚠️ Attempt {attempt+1}: {error_str[:100]}", "warning")
-                continue
+                        # Altri errori o timeout su "Task Not Found"
+                        raise Exception(f"Task error: {error_msg}")
         
-        # Timeout
-        raise Exception(
-            f"❌ Timeout after {max_attempts * wait_time}s\n\n"
-            f"💡 Possible causes:\n"
-            f"• DataForSEO high load\n"
-            f"• Place ID has no reviews\n"
-            f"• Temporary API issue\n\n"
-            f"Try again in a few minutes."
-        )
+        except Exception as e:
+            error_str = str(e)
+            
+            # Se "Task Not Found" nei primi 20 tentativi, continua (task non ancora pronto)
+            if "Task Not Found" in error_str and attempt < 20:
+                if self.debug and attempt % 5 == 0:
+                    self._log(f"⏳ Waiting for task to be ready... ({attempt+1}/20)")
+                continue
+            
+            # Se errore task dopo 20 tentativi, solleva
+            if "Task error:" in error_str:
+                raise
+            
+            # Altri errori di connessione
+            if self.debug and attempt % 10 == 0:
+                self._log(f"⚠️ Attempt {attempt+1}: {error_str[:100]}", "warning")
+            continue
+    
+    # Timeout
+    total_time = initial_wait + (max_attempts * wait_time)
+    raise Exception(
+        f"❌ Timeout after {total_time}s\n\n"
+        f"💡 Possible causes:\n"
+        f"• DataForSEO processing queue overload\n"
+        f"• Place ID has no accessible reviews\n"
+        f"• Temporary API issue\n\n"
+        f"Try again in 2-3 minutes."
+    )
 
 # 🔧 PROCESSING
 @st.cache_data
